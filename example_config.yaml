@@ -1,0 +1,36 @@
+name: example
+duration: 10
+network:
+  - traffic_control: true
+    bandwidth: 1mbit
+    latency: 50ms
+    delay: 100000
+    duration: 10
+applications:
+  - name: server
+    namespace: ns1
+    start_time: 0
+    duration: 10
+    environment: []
+    binary: iperf3
+    arguments:
+      - '-s'
+      - 'J'
+      - '--logfile'
+      - 'server.json'
+  - name: client
+    namespace: ns4
+    start_time: 0
+    duration: 10
+    environment: []
+    binary: iperf3
+    arguments:
+      - '-c'
+      - '10.1.0.10'
+      - '-J'
+      - '--logfile'
+      - 'client.json'
+      - '-i'
+      - '0.1'
+      - '-C'
+      - 'cubic'

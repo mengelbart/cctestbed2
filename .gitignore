@@ -1,0 +1,10 @@
+localhost+1.pem
+localhost+1-key.pem
+input/
+*.pcap
+*.log
+*.qlog
+*.json
+*.png
+.venv
+__pycache__/

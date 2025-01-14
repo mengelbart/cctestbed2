@@ -115,7 +115,7 @@ def run_cmd(args):
         finish = (now+delta).time()
         print(
             f'{now.time()}: running testcase {i}/{len(configs)}: {config.name}. Estimated remaining time: {delta}, earliest finish time: {finish}')
-        run_testcase(config, os.path.join(args.output, config.name))
+        run_testcase(config, os.path.join(args.output, str(int(now.timestamp())), config.name))
         print(f'finished testcase: {config.name}')
         print()
 

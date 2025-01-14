@@ -1,3 +1,4 @@
+import os
 import yaml
 
 from dataclasses import dataclass
@@ -55,7 +56,7 @@ def load_config(yaml_file: str) -> Testcase:
             duration=app['duration'],
             environment=[EnvVariable(**env_var)
                          for env_var in app.get('environment', [])],
-            binary=app['binary'],
+            binary=os.path.abspath(app['binary']),
             arguments=app.get('arguments', []),
         ))
 

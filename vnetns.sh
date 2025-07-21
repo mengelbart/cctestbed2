@@ -11,21 +11,18 @@ check_sudo() {
 	fi
 }
 
-host1() {
-	ip netns exec ns1 bash
-}
-
-host2() {
-	ip netns exec ns4 bash
+host() {
+	local ns=$1
+	ip netns exec ns$ns bash
 }
 
 kitty () {
 	local ns=$1
 	if [[ $ns == "hosts" ]]; then
-		sudo kitty --hold sh -c "ip netns exec ns1 bash" &
-		sudo kitty --hold sh -c "ip netns exec ns4 bash" &
+		ip netns exec ns1 kitty &
+		ip netns exec ns4 kitty &
 	else
-		sudo kitty --hold sh -c "ip netns exec ns$ns bash" &
+		ip netns exec ns$ns kitty &
 	fi
 }
 
@@ -39,15 +36,16 @@ main() {
 	echo "sysctl -w net.bridge.bridge-nf-call-iptables=0"
 	echo "sysctl -w net.ipv4.ip_forward=1"
 
+	if [ "$#" -lt 1 ]; then
+		echo "usage: ventns.sh { kitty [hosts | <host-N> ] | host1 | host2 }"
+		exit 1
+	fi
+
 	local cmd=$1
 	if [[ $cmd == "kitty" ]]; then
 		kitty $2
-	elif [[ $cmd == "host1" ]]; then
-		host1
-	elif [[ $cmd == "host2" ]]; then
-		host2
 	else
-		echo "usage: ventns.sh { kitty [hosts | <host-N> ] | host1 | host2 }"
+		host $1
 	fi
 }
 

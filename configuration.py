@@ -1,5 +1,6 @@
 import os
 import yaml
+import shutil
 
 from dataclasses import dataclass
 from typing import List, Optional
@@ -49,6 +50,7 @@ def load_config(yaml_file: str) -> Testcase:
 
     apps = []
     for app in config_data['applications']:
+        binary = os.path.abspath(shutil.which(app['binary']))
         apps.append(ApplicationConfig(
             name=app['name'],
             namespace=app['namespace'],
@@ -56,7 +58,7 @@ def load_config(yaml_file: str) -> Testcase:
             duration=app['duration'],
             environment=[EnvVariable(**env_var)
                          for env_var in app.get('environment', [])],
-            binary=os.path.abspath(app['binary']),
+            binary=binary,
             arguments=app.get('arguments', []),
         ))
 

@@ -16,7 +16,13 @@ from network import add_delay, remove_bandwidth_limit, remove_delay, set_bandwid
 
 
 def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
-    return {env_var.name: env_var.value for env_var in env_vars}
+    res = {env_var.name: env_var.value for env_var in env_vars}
+    # rewrite paths in environment variables to be absolute so that they can 
+    # be found during the experiment which runs in a different CWD.
+    for name, value in res.items():
+        if os.path.exists(value) or os.path.isdir(value):
+            res[name] = os.path.abspath(value)
+    return res
 
 
 def traffic_controller(configs: list[NetworkConfig]):

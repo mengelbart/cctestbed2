@@ -47,6 +47,8 @@ def app_runner(output_dir: str, application: ApplicationConfig):
     stderr = Path(output_dir) / Path(f'{application.name}.stderr.log')
 
     with open(stdout, 'w') as sout, open(stderr, 'w') as serr:
+        time.sleep(application.start_time)
+        print(f'{application.binary} {' '.join(application.arguments)}')
         p = start(application.namespace, application.binary, application.arguments,
                   cwd=output_dir, env=env, stdout=sout, stderr=serr)
         time.sleep(application.duration)

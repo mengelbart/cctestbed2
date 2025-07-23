@@ -321,6 +321,15 @@ def clear_listener():
         print('tcpdump is not running')
 
 
+def setup_kernel():
+    subprocess.run(['modprobe', 'br_netfilter'], check=True)
+    subprocess.run(['modprobe', 'sch_netem'], check=True)
+    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-arptables=0'], check=True)
+    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-ip6tables=0'], check=True)
+    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-iptables=0'], check=True)
+    subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
+
+
 def clean():
     remove_iface()
     remove_bridge()
@@ -328,6 +337,7 @@ def clean():
 
 
 def setup():
+    setup_kernel()
     create_ns()
     create_bridge()
     create_iface()

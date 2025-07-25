@@ -17,7 +17,7 @@ from network import add_delay, remove_bandwidth_limit, remove_delay, set_bandwid
 
 def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
     res = {env_var.name: env_var.value for env_var in env_vars}
-    # rewrite paths in environment variables to be absolute so that they can 
+    # rewrite paths in environment variables to be absolute so that they can
     # be found during the experiment which runs in a different CWD.
     for name, value in res.items():
         if os.path.exists(value) or os.path.isdir(value):
@@ -101,6 +101,14 @@ def run_testcase(testcase: Testcase, output_dir: str):
 
     clean()
 
+    dir = Path(output_dir)
+    dir.chmod(0o777)
+    for path in dir.rglob('*'):
+        try:
+            path.chmod(0o777)
+        except Exception as e:
+            print('WARNING: failed to chmod {path} in output directory: {e}')
+
 
 def estimate_time(configs):
     return timedelta(seconds=sum([config.duration for config in configs]))
@@ -124,7 +132,8 @@ def run_cmd(args):
         finish = (now+delta).time()
         print(
             f'{now.time()}: running testcase {i+1}/{len(configs)}: {config.name}. Estimated remaining time: {delta}, earliest finish time: {finish}')
-        run_testcase(config, os.path.join(args.output, str(int(ts.timestamp())), config.name))
+        run_testcase(config, os.path.join(
+            args.output, str(int(ts.timestamp())), config.name))
         print(f'finished testcase: {config.name}')
         print()
 

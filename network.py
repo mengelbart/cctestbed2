@@ -93,7 +93,7 @@ DEVICES = [
         'name': 'v2p1',
         'peer': 'v2p2',
         'ns': 'ns2',
-        'ip': '10.1.0.20/24',
+        'ip': '10.1.0.20',
         'mask': 24,
         'broadcast': '10.1.0.255',
         'bridge': 'br1',
@@ -102,7 +102,7 @@ DEVICES = [
         'name': 'v3p1',
         'peer': 'v3p2',
         'ns': 'ns2',
-        'ip': '10.2.0.10/24',
+        'ip': '10.2.0.10',
         'mask': 24,
         'broadcast': '10.2.0.255',
         'bridge': 'br2',
@@ -111,7 +111,7 @@ DEVICES = [
         'name': 'v4p1',
         'peer': 'v4p2',
         'ns': 'ns3',
-        'ip': '10.2.0.20/24',
+        'ip': '10.2.0.20',
         'mask': 24,
         'broadcast': '10.2.0.255',
         'bridge': 'br2',
@@ -120,7 +120,7 @@ DEVICES = [
         'name': 'v5p1',
         'peer': 'v5p2',
         'ns': 'ns3',
-        'ip': '10.3.0.10/24',
+        'ip': '10.3.0.10',
         'mask': 24,
         'broadcast': '10.3.0.255',
         'bridge': 'br3',
@@ -129,7 +129,7 @@ DEVICES = [
         'name': 'v6p1',
         'peer': 'v6p2',
         'ns': 'ns4',
-        'ip': '10.3.0.20/24',
+        'ip': '10.3.0.20',
         'mask': 24,
         'broadcast': '10.3.0.255',
         'bridge': 'br3',
@@ -270,29 +270,6 @@ def remove_bandwidth_limit():
         ns.tc('del', index=dev, handle='0:', parent='1:')
 
 
-PID_FILE = '/tmp/tcpdump.br1.pid'
-
-
-def create_listener(pcap_path):
-    pid_file = Path(PID_FILE)
-    if pid_file.exists():
-        pid = int(Path(PID_FILE).read_text())
-        if check_pid_alive(pid):
-            print('tcpdump is already running')
-    process = subprocess.Popen(["tcpdump", "-i", "br1", "-w", pcap_path])
-    pid = process.pid
-    pid_file.write_text(str(pid))
-
-
-def check_pid_alive(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    else:
-        return True
-
-
 def setup_tc(delay_us=0, bandwidth='1mbit', verb='add'):
     add_delay(delay_us)
     set_bandwidth_limit(bandwidth)
@@ -309,24 +286,32 @@ def clear_tc():
         print(e)
 
 
-def clear_listener():
-    if Path(PID_FILE).exists():
-        pid = int(Path(PID_FILE).read_text())
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            print('tcpdump is not running')
-        Path(PID_FILE).unlink()
-    else:
-        print('tcpdump is not running')
+def ping_all():
+    procs = []
+    for ns in NAMESPACES:
+        for device in DEVICES:
+            procs.append(start(ns['name'], 'ping', [
+                '-c', '1', '-4', device['ip']], stdout=subprocess.PIPE))
+        for brdige in BRIDGES:
+            procs.append(start(ns['name'], 'ping', [
+                         '-c', '1', '-4', brdige['address']], stdout=subprocess.PIPE))
+    for proc in procs:
+        ret = proc.wait()
+        proc.release()
+        if ret != 0:
+            print(
+                f'WARNING: ping command exited with non-zero exit code: {ret} ({proc.args})')
 
 
 def setup_kernel():
     subprocess.run(['modprobe', 'br_netfilter'], check=True)
     subprocess.run(['modprobe', 'sch_netem'], check=True)
-    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-arptables=0'], check=True)
-    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-ip6tables=0'], check=True)
-    subprocess.run(['sysctl', '-w', 'net.bridge.bridge-nf-call-iptables=0'], check=True)
+    subprocess.run(
+        ['sysctl', '-w', 'net.bridge.bridge-nf-call-arptables=0'], check=True)
+    subprocess.run(
+        ['sysctl', '-w', 'net.bridge.bridge-nf-call-ip6tables=0'], check=True)
+    subprocess.run(
+        ['sysctl', '-w', 'net.bridge.bridge-nf-call-iptables=0'], check=True)
     subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
 
 
@@ -342,7 +327,8 @@ def setup():
     create_bridge()
     create_iface()
     create_routes()
+    ping_all()
 
 
-def start(namespace: str, binary: str, arguments: list[str], stdout=None, stderr=None, cwd=None, env=None):
-    return NSPopen(namespace, [binary] + arguments, cwd=cwd, env=env, stdout=stdout, stderr=stderr)
+def start(namespace: str, binary: str, arguments: list[str], stdout=None, stderr=None, cwd=None, env=None, close_fds=True):
+    return NSPopen(namespace, [binary] + arguments, cwd=cwd, env=env, stdout=stdout, stderr=stderr, close_fds=close_fds)

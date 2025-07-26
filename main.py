@@ -59,6 +59,8 @@ def app_runner(output_dir: str, application: ApplicationConfig):
             print(
                 f'timeout while waiting for processes to exit, kiling client and server ({e})')
             p.kill()
+        finally:
+            p.release()
 
 
 def run_testcase(testcase: Testcase, output_dir: str):
@@ -94,10 +96,12 @@ def run_testcase(testcase: Testcase, output_dir: str):
         try:
             tp.terminate()
             tp.wait(1)
-            print('tp terminated')
+            print('tcpdump process terminated')
         except TimeoutError as e:
             tp.kill()
-            print(f'tp killed: {e}')
+            print(f'tcpdump process killed: {e}')
+        finally:
+            tp.release()
 
     clean()
 

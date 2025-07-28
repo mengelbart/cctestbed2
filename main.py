@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+from dataclasses import asdict
 from datetime import datetime, timedelta
 import glob
+import json
 from subprocess import TimeoutExpired
 import threading
 import time
@@ -10,9 +12,14 @@ import os
 
 from pathlib import Path
 from typing import List
+from zoneinfo import ZoneInfo
 
 from configuration import ApplicationConfig, EnvVariable, NetworkConfig, Testcase, load_config
 from network import add_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
+
+
+def get_time():
+    return datetime.now(ZoneInfo("Europe/Berlin")).isoformat()
 
 
 def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
@@ -25,18 +32,32 @@ def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
     return res
 
 
-def traffic_controller(configs: list[NetworkConfig]):
-    for i, config in enumerate(configs):
-        verb = 'add' if i == 0 else 'change'
-        print(f'changing network config: {verb} - {config}')
-        if config.traffic_control:
-            add_delay(config.delay, verb=verb)
-            set_bandwidth_limit(
-                rate=config.bandwidth, latency=config.latency, verb=verb)
-        else:
-            remove_delay()
-            remove_bandwidth_limit()
-        time.sleep(config.duration)
+def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
+    log_file = Path(output_dir) / Path('tc.log')
+    with open(log_file, 'w') as log:
+        last_config = None
+        for i, config in enumerate(configs):
+            last_config = config
+            verb = 'add' if i == 0 else 'change'
+            ts = get_time()
+            data = asdict(config)
+            data['time'] = ts
+            json.dump(data, log)
+            log.write('\n')
+            print(f'{ts} changing network config: {verb} - {config}')
+            if config.traffic_control:
+                add_delay(config.delay, verb=verb)
+                set_bandwidth_limit(
+                    rate=config.bandwidth, latency=config.latency, verb=verb)
+            else:
+                remove_delay()
+                remove_bandwidth_limit()
+            time.sleep(config.duration)
+        ts = get_time()
+        data = asdict(last_config)
+        data['time'] = ts
+        json.dump(data, log)
+        log.write('\n')
 
 
 def app_runner(output_dir: str, application: ApplicationConfig):
@@ -67,13 +88,19 @@ def run_testcase(testcase: Testcase, output_dir: str):
     setup()
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
+    cf = Path(output_dir) / Path('config.json')
+    with open(cf, 'w') as c:
+        data = asdict(testcase)
+        data['time'] = get_time()
+        json.dump(data, c)
+
     tcpdump_ps = []
     for i in [1, 2, 3, 4]:
         tcpdump_ps.append(start(f'ns{i}', 'tcpdump', [
             '-s', '200', '-w', f'ns{i}.pcap'], cwd=output_dir))
 
     traffic_controller_thread = threading.Thread(
-        target=traffic_controller, kwargs={'configs': testcase.network})
+        target=traffic_controller, kwargs={'output_dir': output_dir, 'configs': testcase.network})
     traffic_controller_thread.start()
 
     app_controller_threads = []
@@ -151,7 +178,7 @@ def clean_cmd(args):
 
 
 def setup_tc_cmd(args):
-    setup_tc(delay_us=100000, bandwidth='1mbit')
+    setup_tc(delay_us=10000, bandwidth='1mbit')
 
 
 def clear_tc_cmd(args):

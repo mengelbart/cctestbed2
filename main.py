@@ -160,14 +160,15 @@ def run_cmd(args):
     configs = [load_config(testcase) for testcase in testcases]
     print(f'running testcases: {testcases}')
     for i, config in enumerate(configs):
-        now = datetime.now()
+        start = datetime.now()
         delta = estimate_time(configs[i:])
-        finish = (now+delta).time()
+        finish = (start+delta).time()
         print(
-            f'{now.time()}: running testcase {i+1}/{len(configs)}: {config.name}. Estimated remaining time: {delta}, earliest finish time: {finish}')
+            f'{start.time()}: running testcase {i+1}/{len(configs)}: {config.name}. Estimated remaining time: {delta}, earliest finish time: {finish}')
         run_testcase(config, os.path.join(
             args.output, str(int(ts.timestamp())), config.name))
-        print(f'finished testcase: {config.name}')
+        end = datetime.now()
+        print(f'finished testcase {config.name} after {end - start}')
         print()
 
 

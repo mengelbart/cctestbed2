@@ -34,9 +34,9 @@ def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
 
 def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
     log_file = Path(output_dir) / Path('tc.log')
-    if len(configs) == 0:
-        return
     with open(log_file, 'w') as log:
+        if len(configs) == 0:
+            return
         last_config = None
         for i, config in enumerate(configs):
             last_config = config

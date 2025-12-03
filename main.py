@@ -15,7 +15,7 @@ from typing import List
 from zoneinfo import ZoneInfo
 
 from configuration import ApplicationConfig, EnvVariable, NetworkConfig, Testcase, load_config
-from network import add_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
+from network import set_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
 
 
 def get_time():
@@ -42,9 +42,10 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
             log.write('\n')
             print(f'{ts} changing network config: {verb} - {config}')
             if config.traffic_control:
-                add_delay(config.delay, verb=verb)
+                set_delay(config.delay, verb=verb)
                 set_bandwidth_limit(
-                    rate=config.bandwidth, latency=config.latency, verb=verb)
+                    rate=config.bandwidth, limit=config.limit,
+                    burst=config.burst, verb=verb)
             else:
                 remove_delay()
                 remove_bandwidth_limit()

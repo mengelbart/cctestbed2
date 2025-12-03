@@ -228,7 +228,7 @@ def create_routes():
                 print(e, namespace, route)
 
 
-def add_delay(delay_us=10000, verb='add'):
+def set_delay(delay_us=10000, verb='add'):
     with NetNS('ns2') as ns:
         dev = ns.link_lookup(ifname='v3p1')[0]
         ns.tc(verb, 'netem', index=dev, handle='1:', delay=delay_us)
@@ -248,15 +248,15 @@ def remove_delay():
         ns.tc('del', index=dev, handle='1:')
 
 
-def set_bandwidth_limit(rate='10mbit', latency='50ms', burst=10000, verb='add'):
+def set_bandwidth_limit(rate='10mbit', limit=5000, burst=10000, verb='add'):
     with NetNS('ns2') as ns:
         dev = ns.link_lookup(ifname='v3p1')[0]
         ns.tc(verb, 'tbf', index=dev, handle='0:', parent='1:', rate=rate,
-              latency=latency, burst=burst)
+              limit=limit, burst=burst)
     with NetNS('ns3') as ns:
         dev = ns.link_lookup(ifname='v4p1')[0]
         ns.tc(verb, 'tbf', index=dev, handle='0:', parent='1:', rate=rate,
-              latency=latency, burst=burst)
+              limit=limit, burst=burst)
 
 
 def remove_bandwidth_limit():
@@ -271,7 +271,7 @@ def remove_bandwidth_limit():
 
 
 def setup_tc(delay_us=0, bandwidth='1mbit', verb='add'):
-    add_delay(delay_us)
+    set_delay(delay_us)
     set_bandwidth_limit(bandwidth)
 
 

@@ -3,7 +3,8 @@ duration: 10
 network:
   - traffic_control: true
     bandwidth: 1mbit
-    latency: 50ms
+    limit: 1250
+    burst: 6250
     delay: 100000
     duration: 10
 applications:
@@ -15,9 +16,8 @@ applications:
     binary: iperf3
     arguments:
       - '-s'
-      - 'J'
       - '--logfile'
-      - 'server.json'
+      - 'server.log'
   - name: client
     namespace: ns4
     start_time: 0
@@ -27,10 +27,10 @@ applications:
     arguments:
       - '-c'
       - '10.1.0.10'
-      - '-J'
       - '--logfile'
-      - 'client.json'
+      - 'client.log'
       - '-i'
       - '0.1'
-      - '-C'
-      - 'cubic'
+      - '-u'
+      - '-b'
+      - '1M'

@@ -5,6 +5,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 import glob
 import json
+import multiprocessing
 from subprocess import TimeoutExpired
 import threading
 import time
@@ -184,6 +185,8 @@ def clear_tc_cmd(args):
 
 
 def main():
+    multiprocessing.set_start_method('fork')
+    
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(help='sub-command help', required=True)

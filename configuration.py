@@ -28,7 +28,7 @@ class ApplicationConfig:
 class NetworkConfig:
     traffic_control: bool
     duration: Optional[int]
-    bandwidth: Optional[float]
+    bandwidth: Optional[str]
     burst: Optional[int]
     limit: Optional[int]
     delay: Optional[float]

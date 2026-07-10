@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import List
 from zoneinfo import ZoneInfo
 
-from configuration import ApplicationConfig, EnvVariable, NetworkConfig, Testcase, load_config
-from network import set_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
+from .configuration import ApplicationConfig, EnvVariable, NetworkConfig, Testcase, load_config
+from .network import set_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
 
 
 def get_time():
@@ -186,7 +186,7 @@ def clear_tc_cmd(args):
 
 def main():
     multiprocessing.set_start_method('fork')
-    
+
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(help='sub-command help', required=True)

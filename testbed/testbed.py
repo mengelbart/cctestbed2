@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from subprocess import TimeoutExpired
 
 from .configuration import Testcase, NetworkConfig, ApplicationConfig, EnvVariable
-from .network import set_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, setup, clean, setup_tc, clear_tc, start
+from .network import set_delay, remove_bandwidth_limit, remove_delay, set_bandwidth_limit, set_leaf, remove_leaf, setup, clean, setup_tc, clear_tc, start
 
 
 def get_time():
@@ -27,27 +27,35 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
     with open(log_file, 'w') as log:
         if len(configs) == 0:
             return
-        last_config = None
-        for i, config in enumerate(configs):
-            last_config = config
-            verb = 'add' if i == 0 else 'change'
+        prev_config = None
+        for config in configs:
+            no_prior_state = prev_config is None or not prev_config.traffic_control
+            shaper_changed = prev_config is not None and prev_config.shaper != config.shaper
+            verb = 'add' if (no_prior_state or shaper_changed) else 'change'
             ts = get_time()
             data = asdict(config)
             data['time'] = ts
             json.dump(data, log)
             log.write('\n')
             print(f'{ts} changing network config: {verb} - {config}')
+            if shaper_changed:
+                remove_leaf(prev_config.shaper)
+                remove_bandwidth_limit()
             if config.traffic_control:
                 set_delay(config.delay, verb=verb)
                 set_bandwidth_limit(
                     rate=config.bandwidth, limit=config.limit,
-                    burst=config.burst, verb=verb)
+                    burst=config.burst, verb=verb, shaper=config.shaper)
+                set_leaf(config.aqm, config.aqm_options, limit=config.limit,
+                         shaper=config.shaper)
             else:
+                remove_leaf(config.shaper)
                 remove_delay()
                 remove_bandwidth_limit()
             time.sleep(config.duration)
+            prev_config = config
         ts = get_time()
-        data = asdict(last_config)
+        data = asdict(prev_config)
         data['time'] = ts
         json.dump(data, log)
         log.write('\n')

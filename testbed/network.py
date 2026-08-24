@@ -1,4 +1,5 @@
 
+import shlex
 import subprocess
 
 from pyroute2 import netns, IPRoute, NSPopen, NetNS
@@ -93,6 +94,20 @@ DEVICES = [
 ]
 
 
+# The two router interfaces that shape traffic. ns2:l12-b is the bottleneck
+# for the ns4 -> ns1 direction, ns3:l34-a for ns1 -> ns4.
+BOTTLENECKS = [
+    {'ns': 'ns2', 'if': 'l12-b'},
+    {'ns': 'ns3', 'if': 'l34-a'},
+]
+
+# Qdisc chain on every bottleneck: netem (delay) -> shaper (rate) -> leaf.
+DELAY_HANDLE = '1:'
+SHAPER_HANDLE = '2:'
+HTB_CLASS = '2:10'
+LEAF_HANDLE = '3:'
+
+
 def create_ns():
     for ns in NAMESPACES:
         try:
@@ -157,53 +172,108 @@ def create_routes():
 
 
 def set_delay(delay_us=10000, verb='add'):
-    with NetNS('ns2') as ns:
-        dev = ns.link_lookup(ifname='l12-b')[0]
-        ns.tc(verb, 'netem', index=dev, handle='1:', delay=delay_us)
-    with NetNS('ns3') as ns:
-        dev = ns.link_lookup(ifname='l34-a')[0]
-        ns.tc(verb, 'netem', index=dev, handle='1:', delay=delay_us)
+    for bottleneck in BOTTLENECKS:
+        with NetNS(bottleneck['ns']) as ns:
+            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
+            ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
+                  delay=delay_us)
 
 
 def remove_delay():
     if len(netns.listnetns()) == 0:
         return
-    with NetNS('ns2') as ns:
-        dev = ns.link_lookup(ifname='l12-b')[0]
-        ns.tc('del', 'netem', index=dev, handle='1:')
-    with NetNS('ns3') as ns:
-        dev = ns.link_lookup(ifname='l34-a')[0]
-        ns.tc('del', 'netem', index=dev, handle='1:')
+    for bottleneck in BOTTLENECKS:
+        with NetNS(bottleneck['ns']) as ns:
+            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
+            ns.tc('del', 'netem', index=dev, handle=DELAY_HANDLE)
 
 
-def set_bandwidth_limit(rate='10mbit', limit=5000, burst=10000, verb='add'):
-    with NetNS('ns2') as ns:
-        dev = ns.link_lookup(ifname='l12-b')[0]
-        ns.tc(verb, 'tbf', index=dev, handle='0:', parent='1:', rate=rate,
-              limit=limit, burst=burst)
-    with NetNS('ns3') as ns:
-        dev = ns.link_lookup(ifname='l34-a')[0]
-        ns.tc(verb, 'tbf', index=dev, handle='0:', parent='1:', rate=rate,
-              limit=limit, burst=burst)
+def set_bandwidth_limit(rate='10mbit', limit=5000, burst=10000, verb='add',
+                        shaper='tbf'):
+    for bottleneck in BOTTLENECKS:
+        with NetNS(bottleneck['ns']) as ns:
+            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
+            if shaper == 'htb':
+                ns.tc(verb, 'htb', index=dev, handle=SHAPER_HANDLE,
+                      parent=DELAY_HANDLE, default=0x10)
+                # the rate lives on the leaf class, not on the qdisc
+                class_verb = 'add-class' if verb == 'add' else 'change-class'
+                ns.tc(class_verb, 'htb', index=dev, handle=HTB_CLASS,
+                      parent=SHAPER_HANDLE, rate=rate, ceil=rate,
+                      burst=burst, cburst=burst)
+            elif shaper == 'tbf':
+                ns.tc(verb, 'tbf', index=dev, handle=SHAPER_HANDLE,
+                      parent=DELAY_HANDLE, rate=rate, limit=limit, burst=burst)
+            else:
+                raise ValueError(f'unknown shaper {shaper!r}: expected "tbf" or "htb"')
 
 
 def remove_bandwidth_limit():
     if len(netns.listnetns()) == 0:
         return
-    with NetNS('ns2') as ns:
-        dev = ns.link_lookup(ifname='l12-b')[0]
-        ns.tc('del', index=dev, handle='0:', parent='1:')
-    with NetNS('ns3') as ns:
-        dev = ns.link_lookup(ifname='l34-a')[0]
-        ns.tc('del', index=dev, handle='0:', parent='1:')
+    for bottleneck in BOTTLENECKS:
+        with NetNS(bottleneck['ns']) as ns:
+            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
+            ns.tc('del', index=dev, handle=SHAPER_HANDLE, parent=DELAY_HANDLE)
 
 
-def setup_tc(delay_us=0, bandwidth='1mbit'):
+def leaf_args(aqm=None, aqm_options=None, limit=5000):
+    '''tc arguments for the shaper's leaf qdisc.
+
+    The buffer budget always comes from `limit` (bytes) so that a drop-tail
+    queue and an AQM get the same amount of memory to work with. dualpi2's own
+    `limit` is in packets, its `memlimit` is in bytes, so that is the one that
+    corresponds to `limit`.
+    '''
+    options = shlex.split(aqm_options or '')
+    if aqm is None:
+        return ['bfifo', 'limit', str(limit)]
+    if aqm == 'dualpi2':
+        return ['dualpi2', 'memlimit', str(limit)] + options
+    return [aqm] + options
+
+
+def set_leaf(aqm=None, aqm_options=None, limit=5000, shaper='tbf'):
+    if aqm is not None and shaper != 'htb':
+        raise ValueError(
+            f'aqm {aqm!r} requires shaper "htb", got {shaper!r}: only htb '
+            'supports a leaf class for AQM')
+    if shaper != 'htb':
+        return
+    # pyroute2 has no dualpi2 plugin, so the leaf is configured through the tc
+    # command line.
+    args = leaf_args(aqm, aqm_options, limit)
+    for bottleneck in BOTTLENECKS:
+        subprocess.run(
+            ['ip', 'netns', 'exec', bottleneck['ns'],
+             'tc', 'qdisc', 'replace', 'dev', bottleneck['if'],
+             'parent', HTB_CLASS, 'handle', LEAF_HANDLE] + args,
+            check=True)
+
+
+def remove_leaf(shaper='tbf'):
+    if shaper != 'htb' or len(netns.listnetns()) == 0:
+        return
+    for bottleneck in BOTTLENECKS:
+        subprocess.run(
+            ['ip', 'netns', 'exec', bottleneck['ns'],
+             'tc', 'qdisc', 'del', 'dev', bottleneck['if'],
+             'parent', HTB_CLASS, 'handle', LEAF_HANDLE],
+            check=False)
+
+
+def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, shaper='tbf',
+             aqm=None, aqm_options=None):
     set_delay(delay_us)
-    set_bandwidth_limit(bandwidth)
+    set_bandwidth_limit(bandwidth, limit=limit, shaper=shaper)
+    set_leaf(aqm, aqm_options, limit=limit, shaper=shaper)
 
 
-def clear_tc():
+def clear_tc(shaper='tbf'):
+    try:
+        remove_leaf(shaper)
+    except Exception as e:
+        print(f'Error occurred while removing leaf qdisc: {e}')
     try:
         remove_bandwidth_limit()
     except Exception as e:
@@ -231,8 +301,12 @@ def ping_all():
 
 
 def setup_kernel():
-    subprocess.run(['modprobe', 'br_netfilter'], check=True)
-    subprocess.run(['modprobe', 'sch_netem'], check=True)
+    for module in ['br_netfilter', 'sch_netem', 'sch_tbf', 'sch_htb']:
+        subprocess.run(['modprobe', module], check=True)
+    for module in ['sch_dualpi2']:
+        # not fatal: a kernel may lack dualpi2 and still run non-AQM testcases
+        if subprocess.run(['modprobe', module], check=False).returncode != 0:
+            print(f'WARNING: failed to load {module}')
     subprocess.run(
         ['sysctl', '-w', 'net.bridge.bridge-nf-call-arptables=0'], check=True)
     subprocess.run(

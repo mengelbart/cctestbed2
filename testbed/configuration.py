@@ -32,6 +32,12 @@ class NetworkConfig:
     burst: Optional[int]
     limit: Optional[int]
     delay: Optional[float]
+    shaper: str = "tbf"  # 'tbf' or 'htb'
+    aqm: Optional[str] = None  # Leaf qdisc of the shaper, e.g. 'dualpi2'
+    # Tuning options for `aqm`, passed to tc verbatim. Buffer sizing is *not*
+    # set here, it is always derived from `limit` so that every configuration
+    # gets the same byte budget regardless of the leaf qdisc.
+    aqm_options: Optional[str] = None
 
 
 @dataclass
@@ -43,29 +49,33 @@ class Testcase:
 
 
 def load_config(yaml_file: str) -> Testcase:
-    with open(yaml_file, 'r') as file:
+    with open(yaml_file, "r") as file:
         config_data = yaml.safe_load(file)
 
-    network_config = [NetworkConfig(
-        **net_conf) for net_conf in config_data.get('network', [])]
+    network_config = [
+        NetworkConfig(**net_conf) for net_conf in config_data.get("network", [])
+    ]
 
     apps = []
-    for app in config_data['applications']:
-        binary = os.path.abspath(shutil.which(app['binary']))
-        apps.append(ApplicationConfig(
-            name=app['name'],
-            namespace=app['namespace'],
-            start_time=app['start_time'],
-            duration=app['duration'],
-            environment=[EnvVariable(**env_var)
-                         for env_var in app.get('environment', [])],
-            binary=binary,
-            arguments=app.get('arguments', []),
-        ))
+    for app in config_data["applications"]:
+        binary = os.path.abspath(shutil.which(app["binary"]))
+        apps.append(
+            ApplicationConfig(
+                name=app["name"],
+                namespace=app["namespace"],
+                start_time=app["start_time"],
+                duration=app["duration"],
+                environment=[
+                    EnvVariable(**env_var) for env_var in app.get("environment", [])
+                ],
+                binary=binary,
+                arguments=app.get("arguments", []),
+            )
+        )
 
     return Testcase(
         name=Path(yaml_file).stem,
         network=network_config,
         applications=apps,
-        duration=config_data['duration'],
+        duration=config_data["duration"],
     )

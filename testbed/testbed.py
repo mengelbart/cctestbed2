@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import traceback
 
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
@@ -13,7 +14,7 @@ from zoneinfo import ZoneInfo
 from subprocess import TimeoutExpired
 
 from .configuration import Testcase, NetworkConfig, ApplicationConfig, EnvVariable
-from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, setup, clean, setup_tc, clear_tc, start
+from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, capture_points, setup, clean, setup_tc, clear_tc, start
 
 
 def get_time():
@@ -92,6 +93,16 @@ def app_runner(output_dir: str, application: ApplicationConfig,
             p.release()
 
 
+def wait_for_files(paths: list[Path], timeout: float = 5):
+    '''Wait until all files exist. tcpdump creates its file once capturing is active.'''
+    deadline = time.monotonic() + timeout
+    while not all(p.exists() for p in paths):
+        if time.monotonic() > deadline:
+            missing = [str(p) for p in paths if not p.exists()]
+            raise RuntimeError(f'tcpdump did not start within {timeout}s: {missing}')
+        time.sleep(0.05)
+
+
 def run_testcase(testcase: Testcase, output_dir: str) -> bool:
     '''Run one testcase. Returns False and writes `FAILED` to output_dir if a worker raised.'''
     setup()
@@ -104,9 +115,12 @@ def run_testcase(testcase: Testcase, output_dir: str) -> bool:
         json.dump(data, c)
 
     tcpdump_ps = []
-    for i in [1, 2, 3, 4]:
-        tcpdump_ps.append(start(f'ns{i}', 'tcpdump', [
-            '-s', '200', '-w', f'ns{i}.pcap'], cwd=output_dir))
+    pcaps = []
+    for ns, ifname, pcap in capture_points():
+        tcpdump_ps.append(start(ns, 'tcpdump', [
+            '-i', ifname, '-s', '200', '-w', pcap], cwd=output_dir))
+        pcaps.append(Path(output_dir) / pcap)
+    wait_for_files(pcaps)
 
     # set when any worker fails so the others end early
     stop = threading.Event()

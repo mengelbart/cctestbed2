@@ -4,8 +4,9 @@ import shlex
 import subprocess
 
 from collections import Counter
+from contextlib import ExitStack, contextmanager
 
-from pyroute2 import netns, IPRoute, NSPopen, NetNS, NetlinkError
+from pyroute2 import netns, IPRoute, NetNS, NetlinkError
 
 NAMESPACES = [
     {
@@ -186,67 +187,68 @@ def create_routes():
                 print(e, namespace, route)
 
 
-def set_delay(delay_us=10000, verb='add', limit=NETEM_LIMIT):
+@contextmanager
+def bottleneck_handles():
+    '''Open one NetNS handle per bottleneck namespace, keyed by namespace name.
+
+    The tc helpers below take these handles, so they can run in worker threads
+    without forking.
+    '''
+    with ExitStack() as stack:
+        yield {b['ns']: stack.enter_context(NetNS(b['ns'], flags=0))
+               for b in BOTTLENECKS}
+
+
+def _bottleneck_devs(handles):
     for bottleneck in BOTTLENECKS:
-        with NetNS(bottleneck['ns']) as ns:
-            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
-            ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
-                  delay=delay_us, limit=limit)
+        ns = handles[bottleneck['ns']]
+        yield ns, ns.link_lookup(ifname=bottleneck['if'])[0]
 
 
-def remove_delay():
-    if len(netns.listnetns()) == 0:
-        return
-    for bottleneck in BOTTLENECKS:
-        with NetNS(bottleneck['ns']) as ns:
-            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
-            ns.tc('del', 'netem', index=dev, handle=DELAY_HANDLE)
+def set_delay(handles, delay_us=10000, verb='add', limit=NETEM_LIMIT):
+    for ns, dev in _bottleneck_devs(handles):
+        ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
+              delay=delay_us, limit=limit)
 
 
-def set_bandwidth_limit(rate='10mbit', limit=5000, burst=10000, verb='add',
-                        shaper='tbf'):
-    for bottleneck in BOTTLENECKS:
-        with NetNS(bottleneck['ns']) as ns:
-            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
-            if shaper == 'htb':
-                # the htb qdisc does not support 'change' and has nothing to update
-                if verb == 'add':
-                    ns.tc('add', 'htb', index=dev, handle=SHAPER_HANDLE,
-                          parent=DELAY_HANDLE, default=0x10)
-                # the rate lives on the leaf class, not on the qdisc
-                class_verb = 'add-class' if verb == 'add' else 'change-class'
-                ns.tc(class_verb, 'htb', index=dev, handle=HTB_CLASS,
-                      parent=SHAPER_HANDLE, rate=rate, ceil=rate,
-                      burst=burst, cburst=burst)
-            elif shaper == 'tbf':
-                ns.tc(verb, 'tbf', index=dev, handle=SHAPER_HANDLE,
-                      parent=DELAY_HANDLE, rate=rate, limit=limit, burst=burst)
-            else:
-                raise ValueError(f'unknown shaper {shaper!r}: expected "tbf" or "htb"')
+def remove_delay(handles):
+    for ns, dev in _bottleneck_devs(handles):
+        ns.tc('del', 'netem', index=dev, handle=DELAY_HANDLE)
 
 
-def remove_bandwidth_limit():
-    if len(netns.listnetns()) == 0:
-        return
-    for bottleneck in BOTTLENECKS:
-        with NetNS(bottleneck['ns']) as ns:
-            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
-            ns.tc('del', index=dev, handle=SHAPER_HANDLE, parent=DELAY_HANDLE)
+def set_bandwidth_limit(handles, rate='10mbit', limit=5000, burst=10000,
+                        verb='add', shaper='tbf'):
+    for ns, dev in _bottleneck_devs(handles):
+        if shaper == 'htb':
+            # the htb qdisc does not support 'change' and has nothing to update
+            if verb == 'add':
+                ns.tc('add', 'htb', index=dev, handle=SHAPER_HANDLE,
+                      parent=DELAY_HANDLE, default=0x10)
+            # the rate lives on the leaf class, not on the qdisc
+            class_verb = 'add-class' if verb == 'add' else 'change-class'
+            ns.tc(class_verb, 'htb', index=dev, handle=HTB_CLASS,
+                  parent=SHAPER_HANDLE, rate=rate, ceil=rate,
+                  burst=burst, cburst=burst)
+        elif shaper == 'tbf':
+            ns.tc(verb, 'tbf', index=dev, handle=SHAPER_HANDLE,
+                  parent=DELAY_HANDLE, rate=rate, limit=limit, burst=burst)
+        else:
+            raise ValueError(f'unknown shaper {shaper!r}: expected "tbf" or "htb"')
 
 
-def remove_tc():
+def remove_bandwidth_limit(handles):
+    for ns, dev in _bottleneck_devs(handles):
+        ns.tc('del', index=dev, handle=SHAPER_HANDLE, parent=DELAY_HANDLE)
+
+
+def remove_tc(handles):
     '''Delete the root qdisc and with it the whole tree on every bottleneck.'''
-    existing = netns.listnetns()
-    for bottleneck in BOTTLENECKS:
-        if bottleneck['ns'] not in existing:
-            continue
-        with NetNS(bottleneck['ns']) as ns:
-            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
-            try:
-                ns.tc('del', index=dev)
-            except NetlinkError as e:
-                if e.code != errno.ENOENT:
-                    raise
+    for ns, dev in _bottleneck_devs(handles):
+        try:
+            ns.tc('del', index=dev)
+        except NetlinkError as e:
+            if e.code != errno.ENOENT:
+                raise
 
 
 # Ethernet frame size of a full-size packet, used to turn byte limits into packet limits.
@@ -293,7 +295,7 @@ def set_leaf(aqm=None, aqm_options=None, limit=5000, shaper='tbf'):
 
 
 def remove_leaf(shaper='tbf'):
-    if shaper != 'htb' or len(netns.listnetns()) == 0:
+    if shaper != 'htb':
         return
     for bottleneck in BOTTLENECKS:
         subprocess.run(
@@ -305,24 +307,28 @@ def remove_leaf(shaper='tbf'):
 
 def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, shaper='tbf',
              aqm=None, aqm_options=None):
-    set_delay(delay_us)
-    set_bandwidth_limit(bandwidth, limit=limit, shaper=shaper)
+    with bottleneck_handles() as handles:
+        set_delay(handles, delay_us)
+        set_bandwidth_limit(handles, bandwidth, limit=limit, shaper=shaper)
     set_leaf(aqm, aqm_options, limit=limit, shaper=shaper)
 
 
 def clear_tc(shaper='tbf'):
+    if len(netns.listnetns()) == 0:
+        return
     try:
         remove_leaf(shaper)
     except Exception as e:
         print(f'Error occurred while removing leaf qdisc: {e}')
-    try:
-        remove_bandwidth_limit()
-    except Exception as e:
-        print(f'Error occurred while removing bandwidth limit: {e}')
-    try:
-        remove_delay()
-    except Exception as e:
-        print(f'Error occurred while removing delay: {e}')
+    with bottleneck_handles() as handles:
+        try:
+            remove_bandwidth_limit(handles)
+        except Exception as e:
+            print(f'Error occurred while removing bandwidth limit: {e}')
+        try:
+            remove_delay(handles)
+        except Exception as e:
+            print(f'Error occurred while removing delay: {e}')
 
 
 def ping_all():
@@ -338,7 +344,6 @@ def ping_all():
         if ret != 0:
             print(
                 f'WARNING: ping command exited with non-zero exit code: {ret} ({proc.args})')
-        proc.release()
 
 
 def setup_kernel():
@@ -378,4 +383,6 @@ def capture_points():
 
 
 def start(namespace: str, binary: str, arguments: list[str], stdout=None, stderr=None, cwd=None, env=None, close_fds=True):
-    return NSPopen(namespace, [binary] + arguments, cwd=cwd, env=env, stdout=stdout, stderr=stderr, close_fds=close_fds)
+    '''Start binary in namespace. `ip netns exec` execs in place, so the pid is that of binary.'''
+    return subprocess.Popen(['ip', 'netns', 'exec', namespace, binary] + arguments,
+                            cwd=cwd, env=env, stdout=stdout, stderr=stderr, close_fds=close_fds)

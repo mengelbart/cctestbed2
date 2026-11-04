@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from subprocess import TimeoutExpired
 
 from .configuration import Testcase, NetworkConfig, ApplicationConfig, EnvVariable
-from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, capture_points, setup, clean, setup_tc, clear_tc, start
+from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, capture_points, setup, clean, start, bottleneck_handles
 
 
 def get_time():
@@ -38,7 +38,7 @@ def log_config(log, config: NetworkConfig, t0: float):
     log.write('\n')
 
 
-def traffic_controller(output_dir: str, configs: list[NetworkConfig],
+def traffic_controller(output_dir: str, configs: list[NetworkConfig], handles: dict,
                        t0: float, stop: threading.Event):
     log_file = Path(output_dir) / Path('tc.log')
     with open(log_file, 'w') as log:
@@ -55,17 +55,17 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig],
             print(f'{get_time()} changing network config: delay {delay_verb}, shaper {shaper_verb} - {config}')
             if config.traffic_control:
                 if shaper_changed:
-                    remove_bandwidth_limit()
+                    remove_bandwidth_limit(handles)
                 if leaf_changed:
                     remove_leaf(config.shaper)
-                set_delay(config.delay, verb=delay_verb, limit=config.netem_limit)
+                set_delay(handles, config.delay, verb=delay_verb, limit=config.netem_limit)
                 set_bandwidth_limit(
-                    rate=config.bandwidth, limit=config.limit,
+                    handles, rate=config.bandwidth, limit=config.limit,
                     burst=config.burst, verb=shaper_verb, shaper=config.shaper)
                 set_leaf(config.aqm, config.aqm_options, limit=config.limit,
                          shaper=config.shaper)
             else:
-                remove_tc()
+                remove_tc(handles)
             log_config(log, config, t0)
             prev_config = config
             target += config.duration
@@ -97,8 +97,7 @@ def app_runner(output_dir: str, application: ApplicationConfig,
             print(
                 f'timeout while waiting for processes to exit, kiling client and server ({e})')
             p.kill()
-        finally:
-            p.release()
+            p.wait()
 
 
 def wait_for_files(paths: list[Path], timeout: float = 5):
@@ -132,11 +131,6 @@ def stop_tcpdumps(procs, timeout: float = 5):
             p.wait()
         except Exception as e:
             print(f'WARNING: failed to stop tcpdump: {e}')
-        finally:
-            try:
-                p.release()
-            except Exception:
-                pass
     print('tcpdump processes stopped')
 
 
@@ -148,23 +142,25 @@ def run_workers(testcase: Testcase, output_dir: str) -> list[str]:
     '''Run traffic controller and applications. Returns error descriptions of failed workers.'''
     # set when any worker fails or on interrupt so the others end early
     stop = threading.Event()
-    pool = ThreadPoolExecutor(max_workers=1 + len(testcase.applications))
     futures = {}
-    t0 = time.monotonic()
-    try:
-        futures[pool.submit(traffic_controller, output_dir, testcase.network, t0, stop)] = \
-            'traffic controller'
-        for application in testcase.applications:
-            futures[pool.submit(app_runner, output_dir, application, t0, stop)] = \
-                f'application {application.name}'
-        # stop is set on return, which ends the testcase at t0 + duration
-        timeout = max(0, t0 + testcase.duration - time.monotonic())
-        done, _ = wait(futures, timeout=timeout, return_when=FIRST_EXCEPTION)
-        if any(f.exception() is not None for f in done):
-            print('worker failed, stopping testcase early')
-    finally:
-        stop.set()
-        pool.shutdown(wait=True)
+    # opened before any worker thread exists, as opening a NetNS forks
+    with bottleneck_handles() as handles:
+        pool = ThreadPoolExecutor(max_workers=1 + len(testcase.applications))
+        t0 = time.monotonic()
+        try:
+            futures[pool.submit(traffic_controller, output_dir, testcase.network, handles, t0, stop)] = \
+                'traffic controller'
+            for application in testcase.applications:
+                futures[pool.submit(app_runner, output_dir, application, t0, stop)] = \
+                    f'application {application.name}'
+            # stop is set on return, which ends the testcase at t0 + duration
+            timeout = max(0, t0 + testcase.duration - time.monotonic())
+            done, _ = wait(futures, timeout=timeout, return_when=FIRST_EXCEPTION)
+            if any(f.exception() is not None for f in done):
+                print('worker failed, stopping testcase early')
+        finally:
+            stop.set()
+            pool.shutdown(wait=True)
     print('workers joined')
 
     return [f'{worker}:\n{format_error(f.exception())}'

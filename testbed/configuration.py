@@ -29,11 +29,11 @@ class ApplicationConfig:
 @dataclass
 class NetworkConfig:
     traffic_control: bool
-    duration: Optional[int]
-    bandwidth: Optional[str]
-    burst: Optional[int]
-    limit: Optional[int]
-    delay: Optional[float]
+    duration: int
+    bandwidth: Optional[str] = None  # required if traffic_control
+    burst: Optional[int] = None  # required if traffic_control
+    limit: Optional[int] = None  # required if traffic_control
+    delay: Optional[float] = None  # required if traffic_control
     shaper: str = "tbf"  # 'tbf' or 'htb'
     aqm: Optional[str] = None  # Leaf qdisc of the shaper, e.g. 'dualpi2'
     # Tuning options for `aqm`, passed to tc verbatim. Buffer size is derived

@@ -94,11 +94,11 @@ DEVICES = [
 ]
 
 
-# The two router interfaces that shape traffic. ns2:l12-b is the bottleneck
-# for the ns4 -> ns1 direction, ns3:l34-a for ns1 -> ns4.
+# The two router interfaces on the ns2-ns3 link that shape traffic. ns2:l23-a
+# is the bottleneck for the ns1 -> ns4 direction, ns3:l23-b for ns4 -> ns1.
 BOTTLENECKS = [
-    {'ns': 'ns2', 'if': 'l12-b'},
-    {'ns': 'ns3', 'if': 'l34-a'},
+    {'ns': 'ns2', 'if': 'l23-a'},
+    {'ns': 'ns3', 'if': 'l23-b'},
 ]
 
 # Qdisc chain on every bottleneck: netem (delay) -> shaper (rate) -> leaf.

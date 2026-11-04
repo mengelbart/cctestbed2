@@ -1,7 +1,9 @@
 import json
-import time
-import threading
 import os
+import threading
+import traceback
+
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 
 from pathlib import Path
 from dataclasses import asdict
@@ -22,7 +24,8 @@ def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
     return {env_var.name: env_var.value for env_var in env_vars}
 
 
-def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
+def traffic_controller(output_dir: str, configs: list[NetworkConfig],
+                       stop: threading.Event):
     log_file = Path(output_dir) / Path('tc.log')
     with open(log_file, 'w') as log:
         if len(configs) == 0:
@@ -53,8 +56,9 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
                          shaper=config.shaper)
             else:
                 remove_tc()
-            time.sleep(config.duration)
             prev_config = config
+            if stop.wait(config.duration):
+                break
         ts = get_time()
         data = asdict(prev_config)
         data['time'] = ts
@@ -62,7 +66,8 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig]):
         log.write('\n')
 
 
-def app_runner(output_dir: str, application: ApplicationConfig):
+def app_runner(output_dir: str, application: ApplicationConfig,
+               stop: threading.Event):
     env_vars = env_var_to_dict(application.environment)
     env = os.environ.copy()
     env.update(env_vars)
@@ -70,11 +75,12 @@ def app_runner(output_dir: str, application: ApplicationConfig):
     stderr = Path(output_dir) / Path(f'{application.name}.stderr.log')
 
     with open(stdout, 'w') as sout, open(stderr, 'w') as serr:
-        time.sleep(application.start_time)
+        if stop.wait(application.start_time):
+            return
         print(f'{application.binary} {' '.join(application.arguments)}')
         p = start(application.namespace, application.binary, application.arguments,
                   cwd=output_dir, env=env, stdout=sout, stderr=serr)
-        time.sleep(application.duration)
+        stop.wait(application.duration)
         try:
             p.terminate()
             p.wait(1)
@@ -86,7 +92,8 @@ def app_runner(output_dir: str, application: ApplicationConfig):
             p.release()
 
 
-def run_testcase(testcase: Testcase, output_dir: str):
+def run_testcase(testcase: Testcase, output_dir: str) -> bool:
+    '''Run one testcase. Returns False and writes `FAILED` to output_dir if a worker raised.'''
     setup()
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -101,25 +108,30 @@ def run_testcase(testcase: Testcase, output_dir: str):
         tcpdump_ps.append(start(f'ns{i}', 'tcpdump', [
             '-s', '200', '-w', f'ns{i}.pcap'], cwd=output_dir))
 
-    traffic_controller_thread = threading.Thread(
-        target=traffic_controller, kwargs={'output_dir': output_dir, 'configs': testcase.network})
-    traffic_controller_thread.start()
+    # set when any worker fails so the others end early
+    stop = threading.Event()
+    with ThreadPoolExecutor(max_workers=1 + len(testcase.applications)) as pool:
+        futures = {pool.submit(traffic_controller, output_dir, testcase.network, stop):
+                   'traffic controller'}
+        for application in testcase.applications:
+            futures[pool.submit(app_runner, output_dir, application, stop)] = \
+                f'application {application.name}'
+        done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+        if any(f.exception() is not None for f in done):
+            print('worker failed, stopping testcase early')
+            stop.set()
+    print('workers joined')
 
-    app_controller_threads = []
-    for application in testcase.applications:
-        app_thread = threading.Thread(
-            target=app_runner, kwargs={
-                'output_dir': output_dir, 'application': application}
-        )
-        app_thread.start()
-        app_controller_threads.append(app_thread)
-
-    for apt in app_controller_threads:
-        apt.join()
-    print('apps joined')
-
-    traffic_controller_thread.join()
-    print('tc joined')
+    errors = []
+    for future, worker in futures.items():
+        e = future.exception()
+        if e is not None:
+            msg = ''.join(traceback.format_exception(e))
+            print(f'ERROR in {worker}:\n{msg}')
+            errors.append(f'{worker}:\n{msg}')
+    if errors:
+        with open(Path(output_dir) / 'FAILED', 'w') as f:
+            f.write('\n'.join(errors))
 
     for tp in tcpdump_ps:
         try:
@@ -141,5 +153,7 @@ def run_testcase(testcase: Testcase, output_dir: str):
             path.chmod(0o777)
         except Exception as e:
             print('WARNING: failed to chmod {path} in output directory: {e}')
+
+    return len(errors) == 0
 
 

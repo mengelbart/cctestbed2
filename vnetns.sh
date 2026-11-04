@@ -29,12 +29,9 @@ kitty () {
 main() {
 	check_sudo
 	echo "If connectivity doesn't work, remember to run: "
-	echo "modprobe br_netfilter"
 	echo "modprobe sch_netem"
-	echo "sysctl -w net.bridge.bridge-nf-call-arptables=0"
-	echo "sysctl -w net.bridge.bridge-nf-call-ip6tables=0"
-	echo "sysctl -w net.bridge.bridge-nf-call-iptables=0"
-	echo "sysctl -w net.ipv4.ip_forward=1"
+	echo "ip netns exec ns2 sysctl -w net.ipv4.ip_forward=1"
+	echo "ip netns exec ns3 sysctl -w net.ipv4.ip_forward=1"
 
 	if [ "$#" -lt 1 ]; then
 		echo "usage: ventns.sh { kitty [hosts | <host-N> ] | host1 | host2 }"

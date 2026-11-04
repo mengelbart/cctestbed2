@@ -25,6 +25,7 @@ NAMESPACES = [
     },
     {
         'name': 'ns2',
+        'forwarding': True,
         'routes': [
             {
                 'dst': '10.0.34.0/24',
@@ -35,6 +36,7 @@ NAMESPACES = [
     },
     {
         'name': 'ns3',
+        'forwarding': True,
         'routes': [
             {
                 'dst': '10.0.12.0/24',
@@ -123,6 +125,13 @@ def create_ns():
                 n.link('set', index=n.link_lookup(ifname='lo')[0], state='up')
         except Exception as e:
             print(e)
+
+
+def enable_forwarding():
+    for ns in NAMESPACES:
+        if ns.get('forwarding'):
+            subprocess.run(['ip', 'netns', 'exec', ns['name'],
+                            'sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
 
 
 def remove_ns():
@@ -348,19 +357,12 @@ def ping_all():
 
 
 def setup_kernel():
-    for module in ['br_netfilter', 'sch_netem', 'sch_tbf', 'sch_htb']:
+    for module in ['sch_netem', 'sch_tbf', 'sch_htb']:
         subprocess.run(['modprobe', module], check=True)
     for module in ['sch_dualpi2']:
         # not fatal: a kernel may lack dualpi2 and still run non-AQM testcases
         if subprocess.run(['modprobe', module], check=False).returncode != 0:
             print(f'WARNING: failed to load {module}')
-    subprocess.run(
-        ['sysctl', '-w', 'net.bridge.bridge-nf-call-arptables=0'], check=True)
-    subprocess.run(
-        ['sysctl', '-w', 'net.bridge.bridge-nf-call-ip6tables=0'], check=True)
-    subprocess.run(
-        ['sysctl', '-w', 'net.bridge.bridge-nf-call-iptables=0'], check=True)
-    subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
 
 
 def clean():
@@ -372,6 +374,7 @@ def setup():
     clean()
     setup_kernel()
     create_ns()
+    enable_forwarding()
     create_iface()
     create_routes()
     ping_all()

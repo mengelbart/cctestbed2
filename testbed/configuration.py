@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 from pathlib import Path
 
+from .network import NETEM_LIMIT
+
 
 @dataclass
 class EnvVariable:
@@ -38,6 +40,7 @@ class NetworkConfig:
     # set here, it is always derived from `limit` so that every configuration
     # gets the same byte budget regardless of the leaf qdisc.
     aqm_options: Optional[str] = None
+    netem_limit: int = NETEM_LIMIT  # packets
 
 
 @dataclass

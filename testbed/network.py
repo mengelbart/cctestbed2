@@ -108,6 +108,10 @@ SHAPER_HANDLE = '2:'
 HTB_CLASS = '2:10'
 LEAF_HANDLE = '3:'
 
+# netem holds every packet for the full delay at the unshaped arrival rate, so
+# its queue (in packets) must not become a hidden bottleneck.
+NETEM_LIMIT = 1_000_000
+
 
 def create_ns():
     for ns in NAMESPACES:
@@ -186,12 +190,12 @@ def create_routes():
                 print(e, namespace, route)
 
 
-def set_delay(delay_us=10000, verb='add'):
+def set_delay(delay_us=10000, verb='add', limit=NETEM_LIMIT):
     for bottleneck in BOTTLENECKS:
         with NetNS(bottleneck['ns']) as ns:
             dev = ns.link_lookup(ifname=bottleneck['if'])[0]
             ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
-                  delay=delay_us)
+                  delay=delay_us, limit=limit)
 
 
 def remove_delay():

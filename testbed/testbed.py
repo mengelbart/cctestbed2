@@ -48,7 +48,7 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig],
                     remove_bandwidth_limit()
                 if leaf_changed:
                     remove_leaf(config.shaper)
-                set_delay(config.delay, verb=delay_verb)
+                set_delay(config.delay, verb=delay_verb, limit=config.netem_limit)
                 set_bandwidth_limit(
                     rate=config.bandwidth, limit=config.limit,
                     burst=config.burst, verb=shaper_verb, shaper=config.shaper)

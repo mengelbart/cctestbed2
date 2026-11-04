@@ -1,17 +1,17 @@
 name: example
-duration: 10
+duration: 12
 network:
   - traffic_control: true
     bandwidth: 1mbit
-    limit: 1250
+    limit: 12500
     burst: 6250
     delay: 100000
-    duration: 10
+    duration: 12
 applications:
   - name: server
     namespace: ns1
     start_time: 0
-    duration: 10
+    duration: 12
     environment: []
     binary: iperf3
     arguments:
@@ -20,13 +20,13 @@ applications:
       - 'server.log'
   - name: client
     namespace: ns4
-    start_time: 0
+    start_time: 1
     duration: 10
     environment: []
     binary: iperf3
     arguments:
       - '-c'
-      - '10.1.0.10'
+      - '10.0.12.1'
       - '--logfile'
       - 'client.log'
       - '-i'

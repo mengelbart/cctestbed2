@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import glob
 import multiprocessing
 import os
+import sys
 
 from testbed.configuration import load_config
 from testbed.network import setup, clean, setup_tc, clear_tc
@@ -26,17 +27,26 @@ def run_cmd(args):
     ts = datetime.now()
     configs = [load_config(testcase) for testcase in testcases]
     print(f'running testcases: {testcases}')
+    failed = []
     for i, config in enumerate(configs):
         start = datetime.now()
         delta = estimate_time(configs[i:])
         finish = (start+delta).time()
         print(
             f'{start.time()}: running testcase {i+1}/{len(configs)}: {config.name}. Estimated remaining time: {delta}, earliest finish time: {finish}')
-        run_testcase(config, os.path.join(
-            args.output, str(int(ts.timestamp())), config.name))
+        output_dir = os.path.join(
+            args.output, str(int(ts.timestamp())), config.name)
+        if not run_testcase(config, output_dir):
+            failed.append(output_dir)
         end = datetime.now()
         print(f'finished testcase {config.name} after {end - start}')
         print()
+
+    if failed:
+        print(f'{len(failed)}/{len(configs)} testcases FAILED, see FAILED file in:')
+        for output_dir in failed:
+            print(f'  {output_dir}')
+        sys.exit(1)
 
 
 def setup_cmd(args):

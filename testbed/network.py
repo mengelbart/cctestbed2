@@ -129,6 +129,18 @@ def remove_ns():
             print(f'{e}:', type(e).__name__)
 
 
+OFFLOADS = ['tso', 'gso', 'gro', 'tx-udp-segmentation']
+
+
+def disable_offloads(namespace, ifname):
+    '''Make qdiscs and tcpdump see MTU-sized packets instead of GSO/GRO aggregates.'''
+    args = []
+    for feature in OFFLOADS:
+        args += [feature, 'off']
+    subprocess.run(['ip', 'netns', 'exec', namespace,
+                    'ethtool', '-K', ifname] + args, check=True)
+
+
 def create_iface():
     with IPRoute() as ipr:
         for config in DEVICES:
@@ -144,6 +156,8 @@ def create_iface():
                 with NetNS(config['ns-b']) as ns:
                     ns.addr('add', index=b, address=config['ip-b'], mask=config['mask'], broadcast=config['broadcast'])
                     ns.link('set', index=b, state='up')
+                disable_offloads(config['ns-a'], config['name-a'])
+                disable_offloads(config['ns-b'], config['name-b'])
             except Exception as e:
                 print(f'{type(e).__name__}: {e}, config: {config}')
 

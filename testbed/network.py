@@ -160,11 +160,10 @@ def create_iface():
     with IPRoute() as ipr:
         for config in DEVICES:
             try:
-                ipr.link('add', ifname=config['name-a'], kind='veth', peer=config['name-b'])
-                a = ipr.link_lookup(ifname=config['name-a'])[0]
-                b = ipr.link_lookup(ifname=config['name-b'])[0]
-                ipr.link('set', index=a, net_ns_fd=config['ns-a'])
-                ipr.link('set', index=b, net_ns_fd=config['ns-b'])
+                # both ends are created in their namespaces, never in the root namespace
+                ipr.link('add', ifname=config['name-a'], kind='veth',
+                         net_ns_fd=config['ns-a'],
+                         peer={'ifname': config['name-b'], 'net_ns_fd': config['ns-b']})
                 for side in ('a', 'b'):
                     with NetNS(config[f'ns-{side}']) as ns:
                         index = ns.link_lookup(ifname=config[f'name-{side}'])[0]
@@ -175,20 +174,6 @@ def create_iface():
                 disable_offloads(config['ns-b'], config['name-b'])
             except Exception as e:
                 print(f'{type(e).__name__}: {e}, config: {config}')
-
-
-def remove_iface():
-    with IPRoute() as ipr:
-        for config in DEVICES:
-            try:
-                devs = ipr.link_lookup(ifname=config['name-a'])
-                peers = ipr.link_lookup(ifname=config['name-b'])
-                if len(devs) > 0:
-                    ipr.link('del', index=devs[0])
-                if len(peers) > 0:
-                    ipr.link('del', index=peers[0])
-            except Exception as e:
-                print(f'{e}: ', type(e).__name__)
 
 
 def create_routes():
@@ -366,7 +351,6 @@ def setup_kernel():
 
 
 def clean():
-    remove_iface()
     remove_ns()
 
 

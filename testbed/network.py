@@ -369,6 +369,7 @@ def clean():
 
 
 def setup():
+    clean()
     setup_kernel()
     create_ns()
     create_iface()

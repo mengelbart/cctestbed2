@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import glob
 import multiprocessing
 import os
+import signal
 import sys
 
 from testbed.configuration import load_config
@@ -67,6 +68,8 @@ def clear_tc_cmd(args):
 
 def main():
     multiprocessing.set_start_method('fork')
+    # raise SystemExit on SIGTERM so testcase cleanup runs
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)

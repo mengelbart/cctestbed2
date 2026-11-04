@@ -111,6 +111,28 @@ def validate(testcase: Testcase) -> list[str]:
                 errors.append(f'{where}.{key}: must be a number >= 0, got {value!r}')
         if not all(isinstance(a, str) for a in app.arguments):
             errors.append(f'{where}.arguments: must all be strings, quote numbers in YAML')
+    errors += _check_schedule(testcase)
+    return errors
+
+
+def _check_schedule(testcase: Testcase) -> list[str]:
+    '''Checks that apps and network steps fit into the testcase duration.'''
+    if not _is_number(testcase.duration):
+        return []
+    errors = []
+    offset = 0
+    for i, net in enumerate(testcase.network):
+        if i > 0 and offset >= testcase.duration:
+            errors.append(f'network[{i}]: starts at {offset}s, after the testcase ends at {testcase.duration}s')
+        if not _is_number(net.duration):
+            break
+        offset += net.duration
+    for i, app in enumerate(testcase.applications):
+        if not (_is_number(app.start_time) and _is_number(app.duration)):
+            continue
+        end = app.start_time + app.duration
+        if end > testcase.duration:
+            errors.append(f'applications[{i}] ({app.name}): ends at {end}s, after the testcase ends at {testcase.duration}s')
     return errors
 
 

@@ -103,6 +103,27 @@ def wait_for_files(paths: list[Path], timeout: float = 5):
         time.sleep(0.05)
 
 
+# libpcap hands packets to tcpdump in blocks with a ~1 s timeout, and pending
+# blocks are lost on SIGTERM.
+TCPDUMP_FLUSH_DELAY = 1.5
+
+
+def stop_tcpdumps(procs, timeout: float = 5):
+    time.sleep(TCPDUMP_FLUSH_DELAY)
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        try:
+            p.wait(timeout)
+        except TimeoutExpired as e:
+            print(f'WARNING: killing tcpdump, pcap may be truncated ({e})')
+            p.kill()
+            p.wait()
+        finally:
+            p.release()
+    print('tcpdump processes stopped')
+
+
 def run_testcase(testcase: Testcase, output_dir: str) -> bool:
     '''Run one testcase. Returns False and writes `FAILED` to output_dir if a worker raised.'''
     setup()
@@ -147,16 +168,7 @@ def run_testcase(testcase: Testcase, output_dir: str) -> bool:
         with open(Path(output_dir) / 'FAILED', 'w') as f:
             f.write('\n'.join(errors))
 
-    for tp in tcpdump_ps:
-        try:
-            tp.terminate()
-            tp.wait(1)
-            print('tcpdump process terminated')
-        except TimeoutError as e:
-            tp.kill()
-            print(f'tcpdump process killed: {e}')
-        finally:
-            tp.release()
+    stop_tcpdumps(tcpdump_ps)
 
     clean()
 

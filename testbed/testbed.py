@@ -167,12 +167,26 @@ def run_workers(testcase: Testcase, output_dir: str) -> list[str]:
             for f, worker in futures.items() if f.exception() is not None]
 
 
+def fix_ownership(paths: list[Path]):
+    '''Give paths to the user who invoked sudo, or make them readable for everyone otherwise.'''
+    uid, gid = os.environ.get('SUDO_UID'), os.environ.get('SUDO_GID')
+    for path in paths:
+        try:
+            if uid is not None and gid is not None:
+                os.chown(path, int(uid), int(gid), follow_symlinks=False)
+            elif not path.is_symlink():
+                path.chmod(0o755 if path.is_dir() else 0o644)
+        except Exception as e:
+            print(f'WARNING: failed to fix ownership of {path}: {e}')
+
+
 def run_testcase(testcase: Testcase, output_dir: str) -> bool:
     '''Run one testcase. Returns False and writes `FAILED` to output_dir on any error.
 
     KeyboardInterrupt and SystemExit are recorded the same way and re-raised after cleanup.
     '''
     out = Path(output_dir)
+    created = [d for d in [out, *out.parents] if not d.exists()]
     out.mkdir(parents=True, exist_ok=True)
     errors = []
     tcpdump_ps = []
@@ -212,11 +226,6 @@ def run_testcase(testcase: Testcase, output_dir: str) -> bool:
             with open(out / 'FAILED', 'w') as f:
                 f.write('\n'.join(errors))
 
-        out.chmod(0o777)
-        for path in out.rglob('*'):
-            try:
-                path.chmod(0o777)
-            except Exception as e:
-                print('WARNING: failed to chmod {path} in output directory: {e}')
+        fix_ownership(created + list(out.rglob('*')))
 
     return not errors

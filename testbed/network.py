@@ -3,6 +3,8 @@ import errno
 import shlex
 import subprocess
 
+from collections import Counter
+
 from pyroute2 import netns, IPRoute, NSPopen, NetNS, NetlinkError
 
 NAMESPACES = [
@@ -372,6 +374,19 @@ def setup():
     create_iface()
     create_routes()
     ping_all()
+
+
+def capture_points():
+    '''(namespace, interface, pcap file) for every veth end.
+
+    Namespaces with a single interface keep the name `<ns>.pcap`, the others
+    get `<ns>-<interface>.pcap`.
+    '''
+    ends = [(d[f'ns-{side}'], d[f'name-{side}'])
+            for d in DEVICES for side in ('a', 'b')]
+    per_ns = Counter(ns for ns, _ in ends)
+    return [(ns, ifname, f'{ns}.pcap' if per_ns[ns] == 1 else f'{ns}-{ifname}.pcap')
+            for ns, ifname in ends]
 
 
 def start(namespace: str, binary: str, arguments: list[str], stdout=None, stderr=None, cwd=None, env=None, close_fds=True):

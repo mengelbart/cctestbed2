@@ -165,12 +165,12 @@ def create_iface():
                 b = ipr.link_lookup(ifname=config['name-b'])[0]
                 ipr.link('set', index=a, net_ns_fd=config['ns-a'])
                 ipr.link('set', index=b, net_ns_fd=config['ns-b'])
-                with NetNS(config['ns-a']) as ns:
-                    ns.addr('add', index=a, address=config['ip-a'], mask=config['mask'], broadcast=config['broadcast'])
-                    ns.link('set', index=a, state='up')
-                with NetNS(config['ns-b']) as ns:
-                    ns.addr('add', index=b, address=config['ip-b'], mask=config['mask'], broadcast=config['broadcast'])
-                    ns.link('set', index=b, state='up')
+                for side in ('a', 'b'):
+                    with NetNS(config[f'ns-{side}']) as ns:
+                        index = ns.link_lookup(ifname=config[f'name-{side}'])[0]
+                        ns.addr('add', index=index, address=config[f'ip-{side}'],
+                                mask=config['mask'], broadcast=config['broadcast'])
+                        ns.link('set', index=index, state='up')
                 disable_offloads(config['ns-a'], config['name-a'])
                 disable_offloads(config['ns-b'], config['name-b'])
             except Exception as e:

@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 
-from testbed.configuration import load_config
+from testbed.configuration import ConfigError, load_config
 from testbed.network import setup, clean, setup_tc, clear_tc
 from testbed.testbed import run_testcase
 
@@ -26,7 +26,17 @@ def run_cmd(args):
         raise RuntimeError('no testcase configs given')
 
     ts = datetime.now()
-    configs = [load_config(testcase) for testcase in testcases]
+    configs = []
+    errors = []
+    for testcase in testcases:
+        try:
+            configs.append(load_config(testcase))
+        except ConfigError as e:
+            errors.append(str(e))
+    if errors:
+        print('invalid testcase configs, nothing was run:', file=sys.stderr)
+        print('\n'.join(errors), file=sys.stderr)
+        sys.exit(2)
     print(f'running testcases: {testcases}')
     failed = []
     for i, config in enumerate(configs):

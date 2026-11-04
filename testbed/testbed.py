@@ -111,7 +111,10 @@ TCPDUMP_FLUSH_DELAY = 1.5
 def stop_tcpdumps(procs, timeout: float = 5):
     time.sleep(TCPDUMP_FLUSH_DELAY)
     for p in procs:
-        p.terminate()
+        try:
+            p.terminate()
+        except Exception as e:
+            print(f'WARNING: failed to terminate tcpdump: {e}')
     for p in procs:
         try:
             p.wait(timeout)
@@ -119,67 +122,94 @@ def stop_tcpdumps(procs, timeout: float = 5):
             print(f'WARNING: killing tcpdump, pcap may be truncated ({e})')
             p.kill()
             p.wait()
+        except Exception as e:
+            print(f'WARNING: failed to stop tcpdump: {e}')
         finally:
-            p.release()
+            try:
+                p.release()
+            except Exception:
+                pass
     print('tcpdump processes stopped')
 
 
-def run_testcase(testcase: Testcase, output_dir: str) -> bool:
-    '''Run one testcase. Returns False and writes `FAILED` to output_dir if a worker raised.'''
-    setup()
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+def format_error(e: BaseException) -> str:
+    return ''.join(traceback.format_exception(e))
 
-    cf = Path(output_dir) / Path('config.json')
-    with open(cf, 'w') as c:
-        data = asdict(testcase)
-        data['time'] = get_time()
-        json.dump(data, c)
 
-    tcpdump_ps = []
-    pcaps = []
-    for ns, ifname, pcap in capture_points():
-        tcpdump_ps.append(start(ns, 'tcpdump', [
-            '-i', ifname, '-s', '200', '-w', pcap], cwd=output_dir))
-        pcaps.append(Path(output_dir) / pcap)
-    wait_for_files(pcaps)
-
-    # set when any worker fails so the others end early
+def run_workers(testcase: Testcase, output_dir: str) -> list[str]:
+    '''Run traffic controller and applications. Returns error descriptions of failed workers.'''
+    # set when any worker fails or on interrupt so the others end early
     stop = threading.Event()
-    with ThreadPoolExecutor(max_workers=1 + len(testcase.applications)) as pool:
-        futures = {pool.submit(traffic_controller, output_dir, testcase.network, stop):
-                   'traffic controller'}
+    pool = ThreadPoolExecutor(max_workers=1 + len(testcase.applications))
+    futures = {}
+    try:
+        futures[pool.submit(traffic_controller, output_dir, testcase.network, stop)] = \
+            'traffic controller'
         for application in testcase.applications:
             futures[pool.submit(app_runner, output_dir, application, stop)] = \
                 f'application {application.name}'
         done, _ = wait(futures, return_when=FIRST_EXCEPTION)
         if any(f.exception() is not None for f in done):
             print('worker failed, stopping testcase early')
-            stop.set()
+    finally:
+        stop.set()
+        pool.shutdown(wait=True)
     print('workers joined')
 
+    return [f'{worker}:\n{format_error(f.exception())}'
+            for f, worker in futures.items() if f.exception() is not None]
+
+
+def run_testcase(testcase: Testcase, output_dir: str) -> bool:
+    '''Run one testcase. Returns False and writes `FAILED` to output_dir on any error.
+
+    KeyboardInterrupt and SystemExit are recorded the same way and re-raised after cleanup.
+    '''
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
     errors = []
-    for future, worker in futures.items():
-        e = future.exception()
-        if e is not None:
-            msg = ''.join(traceback.format_exception(e))
-            print(f'ERROR in {worker}:\n{msg}')
-            errors.append(f'{worker}:\n{msg}')
-    if errors:
-        with open(Path(output_dir) / 'FAILED', 'w') as f:
-            f.write('\n'.join(errors))
+    tcpdump_ps = []
+    try:
+        setup()
 
-    stop_tcpdumps(tcpdump_ps)
+        with open(out / 'config.json', 'w') as c:
+            data = asdict(testcase)
+            data['time'] = get_time()
+            json.dump(data, c)
 
-    clean()
+        pcaps = []
+        for ns, ifname, pcap in capture_points():
+            tcpdump_ps.append(start(ns, 'tcpdump', [
+                '-i', ifname, '-s', '200', '-w', pcap], cwd=output_dir))
+            pcaps.append(out / pcap)
+        wait_for_files(pcaps)
 
-    dir = Path(output_dir)
-    dir.chmod(0o777)
-    for path in dir.rglob('*'):
+        errors += run_workers(testcase, output_dir)
+    except BaseException as e:
+        errors.append(f'testcase:\n{format_error(e)}')
+        if not isinstance(e, Exception):
+            raise
+    finally:
         try:
-            path.chmod(0o777)
+            stop_tcpdumps(tcpdump_ps)
         except Exception as e:
-            print('WARNING: failed to chmod {path} in output directory: {e}')
+            print(f'WARNING: stopping tcpdump failed: {e}')
+        try:
+            clean()
+        except Exception as e:
+            print(f'WARNING: removing namespaces failed: {e}')
 
-    return len(errors) == 0
+        if errors:
+            for error in errors:
+                print(f'ERROR in {error}')
+            with open(out / 'FAILED', 'w') as f:
+                f.write('\n'.join(errors))
 
+        out.chmod(0o777)
+        for path in out.rglob('*'):
+            try:
+                path.chmod(0o777)
+            except Exception as e:
+                print('WARNING: failed to chmod {path} in output directory: {e}')
 
+    return not errors

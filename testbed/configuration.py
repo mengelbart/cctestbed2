@@ -36,9 +36,8 @@ class NetworkConfig:
     delay: Optional[float]
     shaper: str = "tbf"  # 'tbf' or 'htb'
     aqm: Optional[str] = None  # Leaf qdisc of the shaper, e.g. 'dualpi2'
-    # Tuning options for `aqm`, passed to tc verbatim. Buffer sizing is *not*
-    # set here, it is always derived from `limit` so that every configuration
-    # gets the same byte budget regardless of the leaf qdisc.
+    # Tuning options for `aqm`, passed to tc verbatim. Buffer size is derived
+    # from `limit`, see network.leaf_args.
     aqm_options: Optional[str] = None
     netem_limit: int = NETEM_LIMIT  # packets
 

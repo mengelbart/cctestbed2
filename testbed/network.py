@@ -253,19 +253,28 @@ def remove_tc():
                     raise
 
 
+# Ethernet frame size of a full-size packet, used to turn byte limits into packet limits.
+MAX_FRAME = 1514
+
+# dualpi2 memlimit high enough to never bind, so its packet limit applies.
+DUALPI2_MEMLIMIT = 1 << 30
+
+
 def leaf_args(aqm=None, aqm_options=None, limit=5000):
     '''tc arguments for the shaper's leaf qdisc.
 
-    The buffer budget always comes from `limit` (bytes) so that a drop-tail
-    queue and an AQM get the same amount of memory to work with. dualpi2's own
-    `limit` is in packets, its `memlimit` is in bytes, so that is the one that
-    corresponds to `limit`.
+    The buffer size comes from `limit` (bytes). bfifo uses it directly.
+    dualpi2 gets `limit // MAX_FRAME` packets, which matches bfifo for
+    full-size packets. Its byte-based memlimit counts skb->truesize, not packet
+    length, so it is set out of the way.
     '''
     options = shlex.split(aqm_options or '')
     if aqm is None:
         return ['bfifo', 'limit', str(limit)]
     if aqm == 'dualpi2':
-        return ['dualpi2', 'memlimit', str(limit)] + options
+        packets = max(1, limit // MAX_FRAME)
+        return ['dualpi2', 'limit', str(packets),
+                'memlimit', str(DUALPI2_MEMLIMIT)] + options
     return [aqm] + options
 
 

@@ -1,8 +1,9 @@
 
+import errno
 import shlex
 import subprocess
 
-from pyroute2 import netns, IPRoute, NSPopen, NetNS
+from pyroute2 import netns, IPRoute, NSPopen, NetNS, NetlinkError
 
 NAMESPACES = [
     {
@@ -194,8 +195,10 @@ def set_bandwidth_limit(rate='10mbit', limit=5000, burst=10000, verb='add',
         with NetNS(bottleneck['ns']) as ns:
             dev = ns.link_lookup(ifname=bottleneck['if'])[0]
             if shaper == 'htb':
-                ns.tc(verb, 'htb', index=dev, handle=SHAPER_HANDLE,
-                      parent=DELAY_HANDLE, default=0x10)
+                # the htb qdisc does not support 'change' and has nothing to update
+                if verb == 'add':
+                    ns.tc('add', 'htb', index=dev, handle=SHAPER_HANDLE,
+                          parent=DELAY_HANDLE, default=0x10)
                 # the rate lives on the leaf class, not on the qdisc
                 class_verb = 'add-class' if verb == 'add' else 'change-class'
                 ns.tc(class_verb, 'htb', index=dev, handle=HTB_CLASS,
@@ -215,6 +218,21 @@ def remove_bandwidth_limit():
         with NetNS(bottleneck['ns']) as ns:
             dev = ns.link_lookup(ifname=bottleneck['if'])[0]
             ns.tc('del', index=dev, handle=SHAPER_HANDLE, parent=DELAY_HANDLE)
+
+
+def remove_tc():
+    '''Delete the root qdisc and with it the whole tree on every bottleneck.'''
+    existing = netns.listnetns()
+    for bottleneck in BOTTLENECKS:
+        if bottleneck['ns'] not in existing:
+            continue
+        with NetNS(bottleneck['ns']) as ns:
+            dev = ns.link_lookup(ifname=bottleneck['if'])[0]
+            try:
+                ns.tc('del', index=dev)
+            except NetlinkError as e:
+                if e.code != errno.ENOENT:
+                    raise
 
 
 def leaf_args(aqm=None, aqm_options=None, limit=5000):

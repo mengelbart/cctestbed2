@@ -25,25 +25,34 @@ def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:
     return {env_var.name: env_var.value for env_var in env_vars}
 
 
+def wait_until(stop: threading.Event, target: float) -> bool:
+    '''Wait until time.monotonic() reaches target. Returns True if stop was set.'''
+    return stop.wait(max(0, target - time.monotonic()))
+
+
+def log_config(log, config: NetworkConfig, t0: float):
+    data = asdict(config)
+    data['time'] = get_time()
+    data['offset'] = time.monotonic() - t0
+    json.dump(data, log)
+    log.write('\n')
+
+
 def traffic_controller(output_dir: str, configs: list[NetworkConfig],
-                       stop: threading.Event):
+                       t0: float, stop: threading.Event):
     log_file = Path(output_dir) / Path('tc.log')
     with open(log_file, 'w') as log:
         if len(configs) == 0:
             return
         prev_config = None
+        target = t0
         for config in configs:
             prev_on = prev_config is not None and prev_config.traffic_control
             shaper_changed = prev_on and prev_config.shaper != config.shaper
             leaf_changed = prev_on and not shaper_changed and prev_config.aqm != config.aqm
             delay_verb = 'change' if prev_on else 'add'
             shaper_verb = 'change' if prev_on and not shaper_changed else 'add'
-            ts = get_time()
-            data = asdict(config)
-            data['time'] = ts
-            json.dump(data, log)
-            log.write('\n')
-            print(f'{ts} changing network config: delay {delay_verb}, shaper {shaper_verb} - {config}')
+            print(f'{get_time()} changing network config: delay {delay_verb}, shaper {shaper_verb} - {config}')
             if config.traffic_control:
                 if shaper_changed:
                     remove_bandwidth_limit()
@@ -57,18 +66,16 @@ def traffic_controller(output_dir: str, configs: list[NetworkConfig],
                          shaper=config.shaper)
             else:
                 remove_tc()
+            log_config(log, config, t0)
             prev_config = config
-            if stop.wait(config.duration):
+            target += config.duration
+            if wait_until(stop, target):
                 break
-        ts = get_time()
-        data = asdict(prev_config)
-        data['time'] = ts
-        json.dump(data, log)
-        log.write('\n')
+        log_config(log, prev_config, t0)
 
 
 def app_runner(output_dir: str, application: ApplicationConfig,
-               stop: threading.Event):
+               t0: float, stop: threading.Event):
     env_vars = env_var_to_dict(application.environment)
     env = os.environ.copy()
     env.update(env_vars)
@@ -76,12 +83,13 @@ def app_runner(output_dir: str, application: ApplicationConfig,
     stderr = Path(output_dir) / Path(f'{application.name}.stderr.log')
 
     with open(stdout, 'w') as sout, open(stderr, 'w') as serr:
-        if stop.wait(application.start_time):
+        start_at = t0 + application.start_time
+        if wait_until(stop, start_at):
             return
         print(f'{application.binary} {' '.join(application.arguments)}')
         p = start(application.namespace, application.binary, application.arguments,
                   cwd=output_dir, env=env, stdout=sout, stderr=serr)
-        stop.wait(application.duration)
+        wait_until(stop, start_at + application.duration)
         try:
             p.terminate()
             p.wait(1)
@@ -142,13 +150,16 @@ def run_workers(testcase: Testcase, output_dir: str) -> list[str]:
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=1 + len(testcase.applications))
     futures = {}
+    t0 = time.monotonic()
     try:
-        futures[pool.submit(traffic_controller, output_dir, testcase.network, stop)] = \
+        futures[pool.submit(traffic_controller, output_dir, testcase.network, t0, stop)] = \
             'traffic controller'
         for application in testcase.applications:
-            futures[pool.submit(app_runner, output_dir, application, stop)] = \
+            futures[pool.submit(app_runner, output_dir, application, t0, stop)] = \
                 f'application {application.name}'
-        done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+        # stop is set on return, which ends the testcase at t0 + duration
+        timeout = max(0, t0 + testcase.duration - time.monotonic())
+        done, _ = wait(futures, timeout=timeout, return_when=FIRST_EXCEPTION)
         if any(f.exception() is not None for f in done):
             print('worker failed, stopping testcase early')
     finally:

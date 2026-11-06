@@ -2,7 +2,7 @@ import os
 import yaml
 import shutil
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 from pathlib import Path
 
@@ -48,6 +48,8 @@ class Testcase:
     network: list[NetworkConfig]
     applications: list[ApplicationConfig]
     duration: int
+    # namespace -> sysctl key -> value, applied after the topology is set up
+    sysctls: dict[str, dict[str, str | int]] = field(default_factory=dict)
 
 
 SHAPERS = ('tbf', 'htb')
@@ -111,7 +113,26 @@ def validate(testcase: Testcase) -> list[str]:
                 errors.append(f'{where}.{key}: must be a number >= 0, got {value!r}')
         if not all(isinstance(a, str) for a in app.arguments):
             errors.append(f'{where}.arguments: must all be strings, quote numbers in YAML')
+    errors += _check_sysctls(testcase.sysctls, namespaces)
     errors += _check_schedule(testcase)
+    return errors
+
+
+def _check_sysctls(sysctls, namespaces: list[str]) -> list[str]:
+    if not isinstance(sysctls, dict):
+        return [f'sysctls: must be a mapping of namespace to settings, got {sysctls!r}']
+    errors = []
+    for ns, settings in sysctls.items():
+        if ns not in namespaces:
+            errors.append(f'sysctls.{ns}: namespace must be one of {namespaces}')
+        if not isinstance(settings, dict):
+            errors.append(f'sysctls.{ns}: must be a mapping of sysctl key to value, got {settings!r}')
+            continue
+        for key, value in settings.items():
+            if not isinstance(key, str) or not key or '=' in key:
+                errors.append(f'sysctls.{ns}: invalid key {key!r}')
+            if not (isinstance(value, str) or _is_int(value)):
+                errors.append(f'sysctls.{ns}.{key}: must be a string or integer, got {value!r}')
     return errors
 
 
@@ -192,6 +213,7 @@ def load_config(yaml_file: str) -> Testcase:
         network=network_config,
         applications=apps,
         duration=config_data.get("duration"),
+        sysctls=config_data.get("sysctls") or {},
     )
     errors += validate(testcase)
     if errors:

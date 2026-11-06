@@ -117,6 +117,24 @@ applications:
 | `duration` | number | Testcase length in seconds. All applications are stopped and the network schedule ends at this time. |
 | `network` | list | Network steps, see below |
 | `applications` | list | Applications, see below |
+| `sysctls` | mapping | Optional per-namespace sysctls, see below |
+
+### Sysctls
+
+Sysctls such as `net.ipv4.tcp_ecn` or `net.ipv4.tcp_congestion_control` are
+per namespace. `sysctls` maps a namespace to the settings applied with
+`sysctl -w` after the topology is set up and before tcpdump and the
+applications start. Values are strings or integers. A setting the kernel
+rejects fails the testcase.
+
+```yaml
+sysctls:
+  ns1:
+    net.ipv4.tcp_ecn: 1
+    net.ipv4.tcp_congestion_control: prague
+  ns4:
+    net.ipv4.tcp_ecn: 1
+```
 
 ### Network steps
 

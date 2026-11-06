@@ -129,6 +129,13 @@ def enable_forwarding():
                             'sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
 
 
+def set_sysctls(sysctls: dict[str, dict[str, str | int]]):
+    for ns, settings in sysctls.items():
+        for key, value in settings.items():
+            subprocess.run(['ip', 'netns', 'exec', ns,
+                            'sysctl', '-w', f'{key}={value}'], check=True)
+
+
 def remove_ns():
     for ns in NAMESPACES:
         try:

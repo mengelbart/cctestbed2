@@ -35,7 +35,11 @@ python3 -m venv .venv
 All links are /24. ns2 and ns3 forward packets, and ns1 and ns4 have routes to
 all subnets. The bottleneck is the ns2-ns3 link: `l23-a` in ns2 shapes the
 ns1 -> ns4 direction and `l23-b` in ns3 shapes ns4 -> ns1. Both directions
-always get the same settings.
+always get the same delay, rate, buffer and AQM, so the ACK path is shaped
+like the data path. Asymmetric links cannot be configured.
+
+`delay` is one-way, so the base RTT between ns1 and ns4 is `2 * delay` (plus
+negligible veth latency). For example, `delay: 25000` gives a 50 ms RTT.
 
 The qdisc chain on each bottleneck interface is
 
@@ -147,7 +151,7 @@ qdiscs, so the link runs unshaped.
 | `traffic_control` | bool | required | Apply the settings below or remove all qdiscs |
 | `duration` | number | required | Seconds until the next step |
 | `bandwidth` | string | required if tc | tc rate string, e.g. `10mbit` |
-| `delay` | number | required if tc | One-way netem delay in microseconds, applied in each direction |
+| `delay` | number | required if tc | One-way netem delay in microseconds, applied in each direction. Base RTT is `2 * delay`. |
 | `limit` | int | required if tc | Bottleneck buffer in bytes, at least 1514. Used as tbf `limit` or bfifo `limit`. For dualpi2 it becomes `limit // 1514` packets. |
 | `burst` | int | required if tc | Shaper burst in bytes, at least 1514 |
 | `shaper` | string | `tbf` | `tbf` or `htb` |

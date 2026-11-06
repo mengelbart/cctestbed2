@@ -59,8 +59,8 @@ Subcommands:
 | `run -g GLOB` | Run all testcase configs matching `GLOB` (quote it) |
 | `setup` | Create namespaces, veths and routes for manual use |
 | `clean` | Remove the namespaces and with them all veths |
-| `tc` | Add a fixed 10 ms netem delay and a 1 mbit tbf shaper |
-| `clear` | Remove the qdiscs added by `tc` |
+| `tc` | Add delay, shaper and leaf qdiscs to the bottleneck after `setup`. Options `--delay`, `--bandwidth`, `--limit`, `--burst`, `--shaper`, `--aqm`, `--aqm-options` match the network step keys below. |
+| `clear` | Remove all qdiscs from the bottleneck |
 
 `-o DIR` (default `out/`) sets the base output directory and goes before the
 subcommand, e.g. `main.py -o results/ run -g 'configs/*.yaml'`.

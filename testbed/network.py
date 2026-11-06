@@ -211,11 +211,6 @@ def set_delay(handles, delay_us=10000, verb='add', limit=NETEM_LIMIT):
               delay=delay_us, limit=limit)
 
 
-def remove_delay(handles):
-    for ns, dev in _bottleneck_devs(handles):
-        ns.tc('del', 'netem', index=dev, handle=DELAY_HANDLE)
-
-
 def set_bandwidth_limit(handles, rate='10mbit', limit=5000, burst=10000,
                         verb='add', shaper='tbf'):
     for ns, dev in _bottleneck_devs(handles):
@@ -305,30 +300,20 @@ def remove_leaf(shaper='tbf'):
             check=False)
 
 
-def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, shaper='tbf',
-             aqm=None, aqm_options=None):
+def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, burst=10000,
+             shaper='tbf', aqm=None, aqm_options=None):
     with bottleneck_handles() as handles:
         set_delay(handles, delay_us)
-        set_bandwidth_limit(handles, bandwidth, limit=limit, shaper=shaper)
+        set_bandwidth_limit(handles, bandwidth, limit=limit, burst=burst,
+                            shaper=shaper)
     set_leaf(aqm, aqm_options, limit=limit, shaper=shaper)
 
 
-def clear_tc(shaper='tbf'):
+def clear_tc():
     if len(netns.listnetns()) == 0:
         return
-    try:
-        remove_leaf(shaper)
-    except Exception as e:
-        print(f'Error occurred while removing leaf qdisc: {e}')
     with bottleneck_handles() as handles:
-        try:
-            remove_bandwidth_limit(handles)
-        except Exception as e:
-            print(f'Error occurred while removing bandwidth limit: {e}')
-        try:
-            remove_delay(handles)
-        except Exception as e:
-            print(f'Error occurred while removing delay: {e}')
+        remove_tc(handles)
 
 
 def ping_all():

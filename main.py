@@ -10,8 +10,8 @@ import sys
 
 from pathlib import Path
 
-from testbed.configuration import ConfigError, load_config
-from testbed.network import setup, clean, setup_tc, clear_tc
+from testbed.configuration import SHAPERS, ConfigError, load_config
+from testbed.network import MAX_FRAME, setup, clean, setup_tc, clear_tc
 from testbed.testbed import run_testcase
 
 def estimate_time(configs):
@@ -19,7 +19,6 @@ def estimate_time(configs):
 
 
 def run_cmd(args):
-    print(args)
     if args.glob:
         testcases = glob.glob(args.glob)
     elif args.testcases:
@@ -77,7 +76,9 @@ def clean_cmd(args):
 
 
 def setup_tc_cmd(args):
-    setup_tc(delay_us=10000, bandwidth='1mbit')
+    setup_tc(delay_us=args.delay, bandwidth=args.bandwidth, limit=args.limit,
+             burst=args.burst, shaper=args.shaper, aqm=args.aqm,
+             aqm_options=args.aqm_options)
 
 
 def clear_tc_cmd(args):
@@ -104,7 +105,21 @@ def main():
         'setup', help='setup virtual interfaces and namespaces')
     setup.set_defaults(func=setup_cmd)
 
-    setup_tc = subparsers.add_parser('tc', help='add netem delay qdisc')
+    setup_tc = subparsers.add_parser(
+        'tc', help='add delay and rate limit qdiscs on the bottleneck',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    setup_tc.add_argument('--delay', type=int, default=10000,
+                          help='one-way delay in microseconds')
+    setup_tc.add_argument('--bandwidth', default='1mbit',
+                          help='tc rate string')
+    setup_tc.add_argument('--limit', type=int, default=12500,
+                          help='bottleneck buffer in bytes')
+    setup_tc.add_argument('--burst', type=int, default=6250,
+                          help='shaper burst in bytes')
+    setup_tc.add_argument('--shaper', choices=SHAPERS, default='tbf',
+                          help='rate limiting qdisc')
+    setup_tc.add_argument('--aqm', help='leaf qdisc, e.g. dualpi2, requires --shaper htb')
+    setup_tc.add_argument('--aqm-options', help='extra tc arguments for --aqm')
     setup_tc.set_defaults(func=setup_tc_cmd)
 
     clean_tc = subparsers.add_parser('clear', help='remove any tc qdiscs')
@@ -118,6 +133,11 @@ def main():
     run.set_defaults(func=run_cmd)
 
     args = parser.parse_args()
+    if args.func is setup_tc_cmd:
+        if args.aqm is not None and args.shaper != 'htb':
+            parser.error('--aqm requires --shaper htb')
+        if args.limit < MAX_FRAME or args.burst < MAX_FRAME:
+            parser.error(f'--limit and --burst must be at least {MAX_FRAME} bytes')
     args.func(args)
 
 

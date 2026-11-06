@@ -10,7 +10,6 @@ from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime
 from typing import List
-from zoneinfo import ZoneInfo
 from subprocess import TimeoutExpired
 
 from .configuration import Testcase, NetworkConfig, ApplicationConfig, EnvVariable
@@ -18,7 +17,7 @@ from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set
 
 
 def get_time():
-    return datetime.now(ZoneInfo("Europe/Berlin")).isoformat()
+    return datetime.now().astimezone().isoformat()
 
 
 def env_var_to_dict(env_vars: List[EnvVariable]) -> dict:

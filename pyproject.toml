@@ -1,0 +1,17 @@
+[project]
+name = "cctestbed2"
+version = "0.1.0"
+description = "Network namespace testbed for congestion control experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyroute2==0.7.12",
+    "PyYAML==6.0.2",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["testbed"]

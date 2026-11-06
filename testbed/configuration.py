@@ -40,6 +40,7 @@ class NetworkConfig:
     # from `limit`, see network.leaf_args.
     aqm_options: Optional[str] = None
     netem_limit: int = NETEM_LIMIT  # packets
+    loss: float = 0.0  # percent, random loss in netem
 
 
 @dataclass
@@ -93,6 +94,8 @@ def validate(testcase: Testcase) -> list[str]:
             errors.append(f'{where}.burst: must be an integer >= {MAX_FRAME} bytes (one full-size frame), got {net.burst!r}')
         if not _is_int(net.netem_limit) or net.netem_limit < 1:
             errors.append(f'{where}.netem_limit: must be an integer >= 1, got {net.netem_limit!r}')
+        if not _is_number(net.loss) or not 0 <= net.loss <= 100:
+            errors.append(f'{where}.loss: must be a number of percent between 0 and 100, got {net.loss!r}')
         if net.shaper not in SHAPERS:
             errors.append(f'{where}.shaper: must be one of {SHAPERS}, got {net.shaper!r}')
         elif net.aqm is not None and net.shaper != 'htb':

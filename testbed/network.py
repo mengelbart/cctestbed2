@@ -101,7 +101,7 @@ BOTTLENECKS = [
     {'ns': 'ns3', 'if': 'l23-b'},
 ]
 
-# Qdisc chain on every bottleneck: netem (delay) -> shaper (rate) -> leaf.
+# Qdisc chain on every bottleneck: netem (delay, loss) -> shaper (rate) -> leaf.
 DELAY_HANDLE = '1:'
 SHAPER_HANDLE = '2:'
 HTB_CLASS = '2:10'
@@ -206,10 +206,10 @@ def _bottleneck_devs(handles):
         yield ns, ns.link_lookup(ifname=bottleneck['if'])[0]
 
 
-def set_delay(handles, delay_us=10000, verb='add', limit=NETEM_LIMIT):
+def set_delay(handles, delay_us=10000, verb='add', limit=NETEM_LIMIT, loss=0):
     for ns, dev in _bottleneck_devs(handles):
         ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
-              delay=delay_us, limit=limit)
+              delay=delay_us, limit=limit, loss=loss)
 
 
 def set_bandwidth_limit(handles, rate='10mbit', limit=5000, burst=10000,
@@ -302,9 +302,9 @@ def remove_leaf(shaper='tbf'):
 
 
 def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, burst=10000,
-             shaper='tbf', aqm=None, aqm_options=None):
+             shaper='tbf', aqm=None, aqm_options=None, loss=0):
     with bottleneck_handles() as handles:
-        set_delay(handles, delay_us)
+        set_delay(handles, delay_us, loss=loss)
         set_bandwidth_limit(handles, bandwidth, limit=limit, burst=burst,
                             shaper=shaper)
     set_leaf(aqm, aqm_options, limit=limit, shaper=shaper)

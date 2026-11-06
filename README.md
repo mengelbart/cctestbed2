@@ -44,7 +44,7 @@ negligible veth latency). For example, `delay: 25000` gives a 50 ms RTT.
 The qdisc chain on each bottleneck interface is
 
 ```
-netem (delay) -> tbf or htb (rate) -> leaf (htb only: bfifo or AQM)
+netem (delay, loss) -> tbf or htb (rate) -> leaf (htb only: bfifo or AQM)
 ```
 
 ## Usage
@@ -63,7 +63,7 @@ Subcommands:
 | `run -g GLOB` | Run all testcase configs matching `GLOB` (quote it) |
 | `setup` | Create namespaces, veths and routes for manual use |
 | `clean` | Remove the namespaces and with them all veths |
-| `tc` | Add delay, shaper and leaf qdiscs to the bottleneck after `setup`. Options `--delay`, `--bandwidth`, `--limit`, `--burst`, `--shaper`, `--aqm`, `--aqm-options` match the network step keys below. |
+| `tc` | Add delay, shaper and leaf qdiscs to the bottleneck after `setup`. Options `--delay`, `--bandwidth`, `--limit`, `--burst`, `--shaper`, `--aqm`, `--aqm-options`, `--loss` match the network step keys below. |
 | `clear` | Remove all qdiscs from the bottleneck |
 
 `-o DIR` (default `out/`) sets the base output directory and goes before the
@@ -157,6 +157,7 @@ qdiscs, so the link runs unshaped.
 | `shaper` | string | `tbf` | `tbf` or `htb` |
 | `aqm` | string | none | Leaf qdisc under the htb class, e.g. `dualpi2`. Requires `shaper: htb`. Without it htb uses a bfifo leaf. |
 | `aqm_options` | string | none | Extra tc arguments for `aqm`, passed verbatim. Do not set the buffer size here, it is derived from `limit`. |
+| `loss` | number | 0 | Random packet loss in percent (0-100), applied by netem in each direction before the shaper. |
 | `netem_limit` | int | 1000000 | netem queue length in packets. The default keeps netem from becoming a hidden bottleneck. |
 
 ### Applications

@@ -8,6 +8,8 @@ import os
 import signal
 import sys
 
+from pathlib import Path
+
 from testbed.configuration import ConfigError, load_config
 from testbed.network import setup, clean, setup_tc, clear_tc
 from testbed.testbed import run_testcase
@@ -33,6 +35,12 @@ def run_cmd(args):
             configs.append(load_config(testcase))
         except ConfigError as e:
             errors.append(str(e))
+    by_name = {}
+    for testcase in testcases:
+        by_name.setdefault(Path(testcase).stem, []).append(testcase)
+    for name, files in by_name.items():
+        if len(files) > 1:
+            errors.append(f'{", ".join(files)}: same name {name!r}, outputs would overwrite each other')
     if errors:
         print('invalid testcase configs, nothing was run:', file=sys.stderr)
         print('\n'.join(errors), file=sys.stderr)

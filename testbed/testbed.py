@@ -13,7 +13,7 @@ from typing import List
 from subprocess import TimeoutExpired
 
 from .configuration import Testcase, NetworkConfig, ApplicationConfig, EnvVariable
-from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, capture_points, setup, clean, start, bottleneck_handles
+from .network import set_delay, remove_bandwidth_limit, set_bandwidth_limit, set_leaf, remove_leaf, remove_tc, capture_points, setup, set_sysctls, clean, start, bottleneck_handles
 
 
 def get_time():
@@ -191,6 +191,7 @@ def run_testcase(testcase: Testcase, output_dir: str) -> bool:
     tcpdump_ps = []
     try:
         setup()
+        set_sysctls(testcase.sysctls)
 
         with open(out / 'config.json', 'w') as c:
             data = asdict(testcase)

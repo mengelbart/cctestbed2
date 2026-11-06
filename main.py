@@ -78,7 +78,7 @@ def clean_cmd(args):
 def setup_tc_cmd(args):
     setup_tc(delay_us=args.delay, bandwidth=args.bandwidth, limit=args.limit,
              burst=args.burst, shaper=args.shaper, aqm=args.aqm,
-             aqm_options=args.aqm_options)
+             aqm_options=args.aqm_options, loss=args.loss)
 
 
 def clear_tc_cmd(args):
@@ -120,6 +120,8 @@ def main():
                           help='rate limiting qdisc')
     setup_tc.add_argument('--aqm', help='leaf qdisc, e.g. dualpi2, requires --shaper htb')
     setup_tc.add_argument('--aqm-options', help='extra tc arguments for --aqm')
+    setup_tc.add_argument('--loss', type=float, default=0,
+                          help='random loss in percent')
     setup_tc.set_defaults(func=setup_tc_cmd)
 
     clean_tc = subparsers.add_parser('clear', help='remove any tc qdiscs')

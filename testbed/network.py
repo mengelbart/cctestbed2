@@ -206,10 +206,37 @@ def _bottleneck_devs(handles):
         yield ns, ns.link_lookup(ifname=bottleneck['if'])[0]
 
 
-def set_delay(handles, delay_us=10000, verb='add', limit=NETEM_LIMIT, loss=0):
-    for ns, dev in _bottleneck_devs(handles):
-        ns.tc(verb, 'netem', index=dev, handle=DELAY_HANDLE,
-              delay=delay_us, limit=limit, loss=loss)
+# netem loss models: parameters in percent, in tc argument order, with
+# defaults. None marks a required parameter.
+LOSS_MODELS = {
+    'random': {'percent': None},
+    # p: good -> bad, r: bad -> good, loss_bad: 1-h, loss_good: 1-k
+    'gemodel': {'p': None, 'r': None, 'loss_bad': 100, 'loss_good': 0},
+    # 1: good reception, 2: good reception in burst, 3: burst loss, 4: isolated loss
+    'state': {'p13': None, 'p31': None, 'p32': 0, 'p23': 100, 'p14': 0},
+}
+
+
+def netem_loss_args(loss=0):
+    '''tc netem arguments for a random loss percentage or a loss model mapping.'''
+    if not isinstance(loss, dict):
+        return ['loss', 'random', f'{loss}%'] if loss else []
+    model = loss['model']
+    values = [loss.get(key, default) for key, default in LOSS_MODELS[model].items()]
+    return ['loss', model] + [f'{v}%' for v in values]
+
+
+def set_delay(delay_us=10000, verb='add', limit=NETEM_LIMIT, loss=0):
+    # pyroute2 cannot encode netem loss models, so netem is configured through
+    # the tc command line.
+    for bottleneck in BOTTLENECKS:
+        subprocess.run(
+            ['ip', 'netns', 'exec', bottleneck['ns'],
+             'tc', 'qdisc', verb, 'dev', bottleneck['if'],
+             'root', 'handle', DELAY_HANDLE, 'netem',
+             'limit', str(limit), 'delay', f'{delay_us}us']
+            + netem_loss_args(loss),
+            check=True)
 
 
 def set_bandwidth_limit(handles, rate='10mbit', limit=5000, burst=10000,
@@ -303,8 +330,8 @@ def remove_leaf(shaper='tbf'):
 
 def setup_tc(delay_us=0, bandwidth='1mbit', limit=5000, burst=10000,
              shaper='tbf', aqm=None, aqm_options=None, loss=0):
+    set_delay(delay_us, loss=loss)
     with bottleneck_handles() as handles:
-        set_delay(handles, delay_us, loss=loss)
         set_bandwidth_limit(handles, bandwidth, limit=limit, burst=burst,
                             shaper=shaper)
     set_leaf(aqm, aqm_options, limit=limit, shaper=shaper)

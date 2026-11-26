@@ -63,7 +63,7 @@ Subcommands:
 | `run -g GLOB` | Run all testcase configs matching `GLOB` (quote it) |
 | `setup` | Create namespaces, veths and routes for manual use |
 | `clean` | Remove the namespaces and with them all veths |
-| `tc` | Add delay, shaper and leaf qdiscs to the bottleneck after `setup`. Options `--delay`, `--bandwidth`, `--limit`, `--burst`, `--shaper`, `--aqm`, `--aqm-options`, `--loss` match the network step keys below. |
+| `tc` | Add delay, shaper and leaf qdiscs to the bottleneck after `setup`. Options `--delay`, `--bandwidth`, `--limit`, `--burst`, `--shaper`, `--aqm`, `--aqm-options`, `--loss` match the network step keys below. `--loss-gemodel P R [LOSS_BAD [LOSS_GOOD]]` and `--loss-state P13 P31 [P32 [P23 [P14]]]` select a loss model instead of `--loss`. |
 | `clear` | Remove all qdiscs from the bottleneck |
 
 `-o DIR` (default `out/`) sets the base output directory and goes before the
@@ -157,8 +157,34 @@ qdiscs, so the link runs unshaped.
 | `shaper` | string | `tbf` | `tbf` or `htb` |
 | `aqm` | string | none | Leaf qdisc under the htb class, e.g. `dualpi2`. Requires `shaper: htb`. Without it htb uses a bfifo leaf. |
 | `aqm_options` | string | none | Extra tc arguments for `aqm`, passed verbatim. Do not set the buffer size here, it is derived from `limit`. |
-| `loss` | number | 0 | Random packet loss in percent (0-100), applied by netem in each direction before the shaper. |
+| `loss` | number or mapping | 0 | Random packet loss in percent (0-100), or a loss model, see below. Applied by netem in each direction before the shaper. |
 | `netem_limit` | int | 1000000 | netem queue length in packets. The default keeps netem from becoming a hidden bottleneck. |
+
+### Loss models
+
+Instead of a number, `loss` takes a mapping with a `model` and its
+parameters. All parameters are percentages (0-100) and map to the netem
+`loss` options of the same model.
+
+| `model` | Parameters | Defaults |
+| --- | --- | --- |
+| `random` | `percent` | none |
+| `gemodel` | `p` (good -> bad), `r` (bad -> good), `loss_bad` (netem `1-h`), `loss_good` (netem `1-k`) | `loss_bad: 100`, `loss_good: 0` |
+| `state` | `p13`, `p31`, `p32`, `p23`, `p14` (4-state Markov model) | `p32: 0`, `p23: 100`, `p14: 0` |
+
+With the default `loss_bad` and `loss_good`, `gemodel` is the simple Gilbert
+model: mean burst length `100 / r` packets, mean loss rate `p / (p + r)`.
+
+```yaml
+loss:
+  model: gemodel
+  p: 1
+  r: 25
+```
+
+Each direction runs its own Markov chain. Every network step reconfigures
+netem, which restarts the chain in its good state, even if the loss settings
+are unchanged.
 
 ### Applications
 

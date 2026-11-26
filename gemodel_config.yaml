@@ -1,0 +1,44 @@
+# Constant rate UDP from ns1 to ns4 through Gilbert loss on an otherwise
+# non-binding bottleneck. Expected loss rate p / (p + r) = 3.8 %, mean burst
+# length 100 / r = 4 packets. Compare ns2-l12-b.pcap with ns2-l23-a.pcap.
+duration: 65
+network:
+  - traffic_control: true
+    duration: 65
+    bandwidth: 100mbit
+    delay: 10000
+    limit: 1000000
+    burst: 125000
+    loss:
+      model: gemodel
+      p: 1
+      r: 25
+applications:
+  - name: server
+    namespace: ns4
+    start_time: 0
+    duration: 65
+    environment: []
+    binary: iperf3
+    arguments:
+      - '-s'
+      - '--logfile'
+      - 'server.log'
+  - name: client
+    namespace: ns1
+    start_time: 1
+    duration: 63
+    environment: []
+    binary: iperf3
+    arguments:
+      - '-c'
+      - '10.0.34.2'
+      - '--logfile'
+      - 'client.log'
+      - '-u'
+      - '-b'
+      - '10M'
+      - '-l'
+      - '1200'
+      - '-t'
+      - '60'

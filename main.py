@@ -10,8 +10,8 @@ import sys
 
 from pathlib import Path
 
-from testbed.configuration import SHAPERS, ConfigError, load_config
-from testbed.network import MAX_FRAME, setup, clean, setup_tc, clear_tc
+from testbed.configuration import SHAPERS, ConfigError, check_loss, load_config
+from testbed.network import LOSS_MODELS, MAX_FRAME, setup, clean, setup_tc, clear_tc
 from testbed.testbed import run_testcase
 
 def estimate_time(configs):
@@ -120,8 +120,14 @@ def main():
                           help='rate limiting qdisc')
     setup_tc.add_argument('--aqm', help='leaf qdisc, e.g. dualpi2, requires --shaper htb')
     setup_tc.add_argument('--aqm-options', help='extra tc arguments for --aqm')
-    setup_tc.add_argument('--loss', type=float, default=0,
-                          help='random loss in percent')
+    loss = setup_tc.add_mutually_exclusive_group()
+    loss.add_argument('--loss', type=float, default=0,
+                      help='random loss in percent')
+    loss.add_argument('--loss-gemodel', type=float, nargs='+',
+                      metavar='PERCENT',
+                      help=f'Gilbert-Elliott loss: {" ".join(LOSS_MODELS["gemodel"])}')
+    loss.add_argument('--loss-state', type=float, nargs='+', metavar='PERCENT',
+                      help=f'4-state Markov loss: {" ".join(LOSS_MODELS["state"])}')
     setup_tc.set_defaults(func=setup_tc_cmd)
 
     clean_tc = subparsers.add_parser('clear', help='remove any tc qdiscs')
@@ -140,6 +146,17 @@ def main():
             parser.error('--aqm requires --shaper htb')
         if args.limit < MAX_FRAME or args.burst < MAX_FRAME:
             parser.error(f'--limit and --burst must be at least {MAX_FRAME} bytes')
+        for model in ('gemodel', 'state'):
+            values = getattr(args, f'loss_{model}')
+            if values is None:
+                continue
+            params = list(LOSS_MODELS[model])
+            if len(values) > len(params):
+                parser.error(f'--loss-{model} takes at most {len(params)} values: {" ".join(params)}')
+            args.loss = {'model': model, **dict(zip(params, values))}
+        errors = check_loss(args.loss)
+        if errors:
+            parser.error(', '.join(errors))
     args.func(args)
 
 

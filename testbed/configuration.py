@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from pathlib import Path
 
-from .network import MAX_FRAME, NAMESPACES, NETEM_LIMIT
+from .network import LOSS_MODELS, MAX_FRAME, NAMESPACES, NETEM_LIMIT
 
 
 @dataclass
@@ -40,7 +40,9 @@ class NetworkConfig:
     # from `limit`, see network.leaf_args.
     aqm_options: Optional[str] = None
     netem_limit: int = NETEM_LIMIT  # packets
-    loss: float = 0.0  # percent, random loss in netem
+    # Random loss in percent, or a mapping with a `model` from
+    # network.LOSS_MODELS and its parameters.
+    loss: float | dict = 0.0
 
 
 @dataclass
@@ -94,8 +96,7 @@ def validate(testcase: Testcase) -> list[str]:
             errors.append(f'{where}.burst: must be an integer >= {MAX_FRAME} bytes (one full-size frame), got {net.burst!r}')
         if not _is_int(net.netem_limit) or net.netem_limit < 1:
             errors.append(f'{where}.netem_limit: must be an integer >= 1, got {net.netem_limit!r}')
-        if not _is_number(net.loss) or not 0 <= net.loss <= 100:
-            errors.append(f'{where}.loss: must be a number of percent between 0 and 100, got {net.loss!r}')
+        errors += [f'{where}.{e}' for e in check_loss(net.loss)]
         if net.shaper not in SHAPERS:
             errors.append(f'{where}.shaper: must be one of {SHAPERS}, got {net.shaper!r}')
         elif net.aqm is not None and net.shaper != 'htb':
@@ -118,6 +119,35 @@ def validate(testcase: Testcase) -> list[str]:
             errors.append(f'{where}.arguments: must all be strings, quote numbers in YAML')
     errors += _check_sysctls(testcase.sysctls, namespaces)
     errors += _check_schedule(testcase)
+    return errors
+
+
+def _is_percent(v) -> bool:
+    return _is_number(v) and 0 <= v <= 100
+
+
+def check_loss(loss) -> list[str]:
+    '''Validates a random loss percentage or a loss model mapping.'''
+    if _is_number(loss):
+        if not _is_percent(loss):
+            return [f'loss: must be a number of percent between 0 and 100, got {loss!r}']
+        return []
+    if not isinstance(loss, dict):
+        return [f'loss: must be a percentage or a mapping with a model, got {loss!r}']
+    model = loss.get('model')
+    if model not in LOSS_MODELS:
+        return [f'loss.model: must be one of {list(LOSS_MODELS)}, got {model!r}']
+    params = LOSS_MODELS[model]
+    errors = []
+    unknown = set(loss) - {'model'} - set(params)
+    if unknown:
+        errors.append(f'loss: unknown keys {sorted(unknown)} for model {model!r}, expected {list(params)}')
+    missing = [key for key, default in params.items() if default is None and key not in loss]
+    if missing:
+        errors.append(f'loss: missing keys {missing} for model {model!r}')
+    for key in params:
+        if key in loss and not _is_percent(loss[key]):
+            errors.append(f'loss.{key}: must be a number of percent between 0 and 100, got {loss[key]!r}')
     return errors
 
 

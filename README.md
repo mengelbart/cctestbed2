@@ -8,7 +8,7 @@ to run on the end hosts. Every veth end is captured with tcpdump.
 ## Requirements
 
 - Linux and root privileges (namespaces, qdiscs, `modprobe`, `sysctl`)
-- Python >= 3.12
+- Python >= 3.12 and [uv](https://docs.astral.sh/uv/)
 - `iproute2` (`ip`, `tc`)
 - `ethtool`, used to disable TSO/GSO/GRO on all veths
 - `tcpdump`
@@ -16,12 +16,14 @@ to run on the end hosts. Every veth end is captured with tcpdump.
   `sch_dualpi2` (plus a `tc` that knows dualpi2) for L4S experiments
 - The binaries used by the testcases, e.g. `iperf3` for `example_config.yaml`
 
-Python dependencies:
+Python dependencies are pinned in `uv.lock`. Create or update `.venv` with
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e .
+uv sync
 ```
+
+Rerun it after a system Python upgrade, it recreates `.venv` if its
+interpreter is gone.
 
 ## Topology
 
@@ -49,7 +51,8 @@ netem (delay, loss) -> tbf or htb (rate) -> leaf (htb only: bfifo or AQM)
 
 ## Usage
 
-All commands need root. With a virtualenv, run its interpreter through sudo:
+All commands need root. Run the interpreter of the `uv sync` environment
+through sudo, `sudo uv run` would let root modify `.venv` and the uv cache:
 
 ```sh
 sudo .venv/bin/python main.py run -t example_config.yaml
@@ -99,7 +102,7 @@ When run through sudo, the output is chowned to the invoking user.
 testcase's output directory, without root:
 
 ```sh
-python3 scripts/analyze_loss.py out/<timestamp>/gemodel_config
+uv run scripts/analyze_loss.py out/<timestamp>/gemodel_config
 ```
 
 It matches the packets entering the bottleneck router (`ns2-l12-b.pcap`)

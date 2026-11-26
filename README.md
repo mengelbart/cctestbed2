@@ -93,6 +93,23 @@ must therefore be unique within a run. Each directory contains
 
 When run through sudo, the output is chowned to the invoking user.
 
+### Loss analysis
+
+`scripts/analyze_loss.py` measures the loss pattern of the bottleneck from a
+testcase's output directory, without root:
+
+```sh
+python3 scripts/analyze_loss.py out/<timestamp>/gemodel_config
+```
+
+It matches the packets entering the bottleneck router (`ns2-l12-b.pcap`)
+with those leaving it (`ns2-l23-a.pcap`), or with `-d reverse` the ns3 pcaps
+for the ns4 -> ns1 direction. For each network step it reports loss rate,
+mean burst and gap lengths and a burst length histogram next to the values
+expected from the configured loss model. Shaper and AQM drops count as loss
+too, so use a non-binding bottleneck like in `gemodel_config.yaml` to
+validate a loss model.
+
 ## Testcase config
 
 ```yaml
